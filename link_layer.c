@@ -24,16 +24,16 @@ int llopen(LinkLayer connectionParameters) {
             return -1;
         }
 
+        printf("Serial port %s opened\n", connectionParameters.serialPort);
+
         struct sigaction act = {0};
         act.sa_handler = &alarmHandler;
-
         if (sigaction(SIGALRM, &act, NULL) == -1) {
             perror("sigaction");
             return -1;
         }
 
         unsigned char SET[5] = {0x7E, 0x03, 0x03, 0x03 ^ 0x03, 0x7E};
-        unsigned char UA;
 
         while (alarmCount < connectionParameters.nRetransmissions && !UA_received) {
             if (!alarmEnabled) {
@@ -43,43 +43,44 @@ int llopen(LinkLayer connectionParameters) {
                 alarmEnabled = TRUE;
             }
 
+            unsigned char byte;
             ControlState state = START_STATE;
             while (state != STOP_STATE) {
-                int res = readByteSerialPort(&UA);
-                if (res <= 0)
+                int res = readByteSerialPort(&byte);
+                if (res <= 0) 
                     continue;
                 
                 switch (state) {
                     case START_STATE:
-                        if (UA == 0x7E)
+                        if (byte == FLAG)
                             state = FLAG_RCV;
                         break;
                     case FLAG_RCV:
-                        if (UA == 0x03)
+                        if (byte == 0x01)
                             state = A_RCV;
-                        else if (UA == FLAG)
+                        else if (byte == FLAG)
                             state = FLAG_RCV;
                         else 
                             state = START_STATE;
                         break;
                     case A_RCV:
-                        if (UA == 0x03)
+                        if (byte == 0x07)
                             state = C_RCV;
-                        else if (UA == FLAG)
+                        else if (byte == FLAG) 
                             state = FLAG_RCV;
                         else 
                             state = START_STATE;
                         break;
                     case C_RCV:
-                        if (UA == (0x03 ^ 0x03))
+                        if (byte == (0x01 ^ 0x07))
                             state = BCC_OK;
-                        else if (UA == FLAG) 
+                        else if (byte == FLAG)
                             state = FLAG_RCV;
                         else 
                             state = START_STATE;
                         break;
-                    case BCC_OK:
-                        if (UA == FLAG)
+                    case BCC_OK: 
+                        if (byte == FLAG)
                             state = STOP_STATE;
                         else 
                             state = START_STATE;
@@ -89,20 +90,106 @@ int llopen(LinkLayer connectionParameters) {
                         break;
                 }
             }
+
+            printf("UA frame received correctly.\n");
+            UA_received = TRUE;
+            alarm(0);
+            alarmEnabled = FALSE;
         }
+
+        if (!UA_received) {
+		    printf("Failed to receive UA after %d attempts\n", connectionParameters.nRetransmissions);	
+            return -1;
+        }
+
+        if (closeSerialPort() < 0) {
+            perror("closeSerialPort");
+            return -1;
+        }
+
+        printf("Serial port %s closed\n", connectionParameters.serialPort);
+
+        return 0;
     }   
 
     // Receiver
     else if (connectionParameters.role == LlRx) {
+        if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) {
+            perror("openSerialPort");
+            return -1;
+        }
 
-    }
+        printf("Serial port %s opened\n", connectionParameters.serialPort);
+
+        unsigned char byte;
+        ControlState state = START_STATE;
+        while (state != STOP_STATE) {
+            int res = readByteSerialPort(&byte);
+            if (res <= 0)
+                continue;
+
+            switch (state) {
+                case START_STATE:
+                    if (byte == FLAG)
+                        state = FLAG_RCV;
+                    break;
+                case FLAG_RCV:
+                    if (byte == 0x03)
+                        state = A_RCV;
+                    else if (byte == FLAG)
+                        state = FLAG_RCV;
+                    else 
+                        state = START_STATE;
+                    break;
+                case A_RCV:
+                    if (byte == 0x03)
+                        state = C_RCV;
+                    else if (byte == FLAG)
+                        state = FLAG_RCV;
+                    else 
+                        state = START_STATE;
+                    break;
+                case C_RCV:
+                    if (byte == (0x03 ^ 0x03))
+                        state = BCC_OK;
+                    else if (byte == FLAG)
+                        state = FLAG_RCV;
+                    else 
+                        state = START_STATE;
+                    break;
+                case BCC_OK:
+                    if (byte == FLAG)
+                        state = STOP_STATE;
+                    else 
+                        state = START_STATE;
+                    break;
+                default:
+                    state = START_STATE;
+                    break;
+            }
+        }
+
+        printf("SET frame received correctly.\n");
+
+        unsigned char UA[5] = {FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};
+        int bytes_sent = writeBytesSerialPort(UA, 5);
+        printf("%d bytes written to serial port (UA frame)\n", bytes_sent);
+
+        sleep(1);
+
+        if (closeSerialPort() < 0) {
+            perror("closeSerialPort");
+            return -1;
+        }
+
+        printf("Serial port %s closed\n", connectionParameters.serialPort);
+    	return 0;
+    } 
 
     else {
         printf("error determining the role using llopen.\n");
         return -1;
     }
-
-    return 0;
 }
 
 ////////////////////////////////////////////////
