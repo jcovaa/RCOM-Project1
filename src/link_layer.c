@@ -11,7 +11,6 @@
 int alarmEnabled = FALSE;
 int alarmCount = 0;
 int UA_received = FALSE;
-int DISC_received = FALSE;
 
 ////////////////////////////////////////////////
 // LLOPEN
@@ -45,49 +44,49 @@ int llopen(LinkLayer connectionParameters) {
             }
 
             unsigned char byte;
-            ControlState state = START_STATE;
-            while (state != STOP_STATE) {
+            ControlState state = CSTART_STATE;
+            while (state != CSTOP_STATE) {
                 int res = readByteSerialPort(&byte);
                 if (res <= 0) 
                     continue;
                 
                 switch (state) {
-                    case START_STATE:
+                    case CSTART_STATE:
                         if (byte == FLAG)
-                            state = FLAG_RCV;
+                            state = CFLAG_RCV;
                         break;
-                    case FLAG_RCV:
+                    case CFLAG_RCV:
                         if (byte == 0x01)
-                            state = A_RCV;
+                            state = CA_RCV;
                         else if (byte == FLAG)
-                            state = FLAG_RCV;
+                            state = CFLAG_RCV;
                         else 
-                            state = START_STATE;
+                            state = CSTART_STATE;
                         break;
-                    case A_RCV:
+                    case CA_RCV:
                         if (byte == 0x07)
-                            state = C_RCV;
+                            state = CC_RCV;
                         else if (byte == FLAG) 
-                            state = FLAG_RCV;
+                            state = CFLAG_RCV;
                         else 
-                            state = START_STATE;
+                            state = CSTART_STATE;
                         break;
-                    case C_RCV:
+                    case CC_RCV:
                         if (byte == (0x01 ^ 0x07))
-                            state = BCC_OK;
+                            state = CBCC_OK;
                         else if (byte == FLAG)
-                            state = FLAG_RCV;
+                            state = CFLAG_RCV;
                         else 
-                            state = START_STATE;
+                            state = CSTART_STATE;
                         break;
-                    case BCC_OK: 
+                    case CBCC_OK: 
                         if (byte == FLAG)
-                            state = STOP_STATE;
+                            state = CSTOP_STATE;
                         else 
-                            state = START_STATE;
+                            state = CSTART_STATE;
                         break;
                     default:
-                        state = START_STATE;
+                        state = CSTART_STATE;
                         break;
                 }
             }
@@ -111,7 +110,7 @@ int llopen(LinkLayer connectionParameters) {
         printf("Serial port %s closed\n", connectionParameters.serialPort);
 
         return 0;
-    }
+    }   
 
     // Receiver
     else if (connectionParameters.role == LlRx) {
@@ -123,49 +122,49 @@ int llopen(LinkLayer connectionParameters) {
         printf("Serial port %s opened\n", connectionParameters.serialPort);
 
         unsigned char byte;
-        ControlState state = START_STATE;
-        while (state != STOP_STATE) {
+        ControlState state = CSTART_STATE;
+        while (state != CSTOP_STATE) {
             int res = readByteSerialPort(&byte);
             if (res <= 0)
                 continue;
 
             switch (state) {
-                case START_STATE:
+                case CSTART_STATE:
                     if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     break;
-                case FLAG_RCV:
+                case CFLAG_RCV:
                     if (byte == 0x03)
-                        state = A_RCV;
+                        state = CA_RCV;
                     else if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     else 
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
-                case A_RCV:
+                case CA_RCV:
                     if (byte == 0x03)
-                        state = C_RCV;
+                        state = CC_RCV;
                     else if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     else 
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
-                case C_RCV:
+                case CC_RCV:
                     if (byte == (0x03 ^ 0x03))
-                        state = BCC_OK;
+                        state = CBCC_OK;
                     else if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     else 
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
-                case BCC_OK:
+                case CBCC_OK:
                     if (byte == FLAG)
-                        state = STOP_STATE;
+                        state = CSTOP_STATE;
                     else 
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
                 default:
-                    state = START_STATE;
+                    state = CSTART_STATE;
                     break;
             }
         }
@@ -185,7 +184,7 @@ int llopen(LinkLayer connectionParameters) {
 
         printf("Serial port %s closed\n", connectionParameters.serialPort);
     	return 0;
-    }
+    } 
 
     else {
         printf("error determining the role using llopen.\n");
@@ -197,7 +196,9 @@ int llopen(LinkLayer connectionParameters) {
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize) {
-    // TODO: Implement this function
+    int nBytes = 0;
+
+    
 
     return 0;
 }
@@ -214,279 +215,10 @@ int llread(unsigned char *packet) {
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
-int llclose(LinkLayer connectionParameters) {
-    unsigned char byte;
-    ControlState state;
+int llclose() {
+    // TODO: Implement this function
 
-    // Transmitter
-    if (connectionParameters.role == LlTx) {
-        if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) {
-            perror("openSerialPort");
-            return -1;
-        }
-        printf("Serial port %s opened (llclose - Tx)\n", connectionParameters.serialPort);
-
-        struct sigaction act = {0};
-        act.sa_handler = &alarmHandler;
-        if (sigaction(SIGALRM, &act, NULL) == -1) {
-            perror("sigaction");
-            closeSerialPort();
-            return -1;
-        }
-
-        unsigned char DISC_tx[5] = {FLAG, 0x03, 0x0B, 0x03 ^ 0x0B, FLAG};
-        unsigned char DISC_A_rx = 0x01, DISC_C_rx = 0x0B;
-
-        unsigned char UA_tx[5] = {FLAG, 0x01, 0x07, 0x01 ^ 0x07, FLAG};
-
-        alarmEnabled = FALSE;
-        alarmCount = 0;
-
-        while (alarmCount < connectionParameters.nRetransmissions && !DISC_received) {
-            if (!alarmEnabled) {
-                printf("Sending DISC frame (attempt %d)\n", alarmCount + 1);
-                writeBytesSerialPort(DISC_tx, 5);
-                alarm(connectionParameters.timeout);
-                alarmEnabled = TRUE;
-            }
-
-            state = START_STATE;
-            while (state != STOP_STATE) {
-                int res = readByteSerialPort(&byte);
-                if (res <= 0) {
-                    continue;
-                }
-
-                switch (state) {
-                    case START_STATE:
-                        if (byte == FLAG) {
-                            state = FLAG_RCV;
-                        }
-                        break;
-                    case FLAG_RCV:
-                        if (byte == DISC_A_rx) {
-                            state = A_RCV;
-                        }
-                        else if (byte == FLAG) {
-                            state = FLAG_RCV;
-                        }
-                        else {
-                            state = START_STATE;
-                        }
-                        break;
-                    case A_RCV:
-                        if (byte == DISC_C_rx) {
-                            state = C_RCV;
-                        }
-                        else if (byte == FLAG) {
-                            state = FLAG_RCV;
-                        }
-                        else {
-                            state = START_STATE;
-                        }
-                        break;
-                    case C_RCV:
-                        if (byte == (DISC_A_rx ^ DISC_C_rx)) {
-                            state = BCC_OK;
-                        }
-                        else if (byte == FLAG) {
-                            state = FLAG_RCV;
-                        }
-                        else {
-                            state = START_STATE;
-                        }
-                        break;
-                    case BCC_OK:
-                        if (byte == FLAG) {
-                            state = STOP_STATE;
-                        }
-                        else {
-                            state = START_STATE;
-                        }
-                        break;
-                    default:
-                        state = START_STATE;
-                        break;
-                }
-            }
-
-            printf("DISC frame from receiver received correctly.\n");
-            DISC_received = 1;
-            alarm(0);
-            alarmEnabled = FALSE;
-
-            int bytes_sent = writeBytesSerialPort(UA_tx, 5);
-            printf("%d bytes written to serial port (UA frame)\n", bytes_sent);
-        }
-
-        if (!DISC_received) {
-            printf("Failed to receive DISC after %d attempts\n", connectionParameters.nRetransmissions);
-            closeSerialPort();
-            return -1;
-        }
-
-        if (closeSerialPort() < 0) {
-            perror("closeSerialPort");
-            return -1;
-        }
-        
-        printf("Serial port %s closed (llclose - Tx)\n", connectionParameters.serialPort);
-        return 0;
-    }
-
-    // Receiver
-    else if (connectionParameters.role == LlRx) {
-        if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) {
-            perror("openSerialPort");
-            return -1;
-        }
-        printf("Serial port %s opened (llclose - Rx)\n", connectionParameters.serialPort);
-
-        unsigned char DISC_reply[5] = {FLAG, 0x01, 0x0B, (0x01 ^ 0x0B), FLAG};
-        unsigned char DISC_A_tx = 0x03, DISC_C_tx = 0x0B;
-
-        state = START_STATE;
-        while (state != STOP_STATE) {
-            int res = readByteSerialPort(&byte);
-            if (res <= 0) {
-                continue;
-            }
-
-            switch (state) {
-                case START_STATE:
-                    if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    break;
-                case FLAG_RCV:
-                    if (byte == DISC_A_tx) {
-                        state = A_RCV;
-                    }
-                    else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                case A_RCV:
-                    if (byte == DISC_C_tx) {
-                        state = C_RCV;
-                    }
-                    else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                case C_RCV:
-                    if (byte == (DISC_A_tx ^ DISC_C_tx)) {
-                        state = BCC_OK;
-                    }
-                    else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                case BCC_OK:
-                    if (byte == FLAG) {
-                        state = STOP_STATE;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                default:
-                    state = START_STATE;
-                    break;
-            }
-        }
-
-        printf("DISC frame from transmitter received correctly.\n");
-
-        int bytes_sent = writeBytesSerialPort(DISC_reply, 5);
-        printf("%d bytes written to serial port (DISC reply)\n", bytes_sent);
-
-        state = START_STATE;
-        unsigned char UA_A = 0x01, UA_C = 0x07;
-
-        while (state != STOP_STATE) {
-            int res = readByteSerialPort(&byte);
-            if (res <= 0) {
-                continue;
-            }
-
-            switch (state) {
-                case START_STATE:
-                    if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    break;
-                case FLAG_RCV:
-                    if (byte == UA_A) {
-                        state = A_RCV;
-                    }
-                    else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                case A_RCV:
-                    if (byte == UA_C) {
-                        state = C_RCV;
-                    }
-                    else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                case C_RCV:
-                    if (byte == (UA_A ^ UA_C)) {
-                        state = BCC_OK;
-                    }
-                    else if (byte == FLAG) {
-                        state = FLAG_RCV;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                case BCC_OK:
-                    if (byte == FLAG) {
-                        state = STOP_STATE;
-                    }
-                    else {
-                        state = START_STATE;
-                    }
-                    break;
-                default:
-                    state = START_STATE;
-                    break;
-            }
-        }
-
-        printf("UA frame received correctly.\n");
-
-        sleep(1);
-
-        if (closeSerialPort() < 0) {
-            perror("closeSerialPort");
-            return -1;
-        }
-
-        printf("Serial port %s closed (llclose - Rx)\n", connectionParameters.serialPort);
-        return 0;
-    }
-
-    printf("error determining the role using llclose.\n");
-    return -1;
+    return 0;
 }
 
 void alarmHandler(int signal) {
