@@ -29,7 +29,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     printf("Testing llclose\n");
-    if (llclose() == -1) {
+    if (llclose(connectionParameters) == -1) {
         printf("Error occured\n");
         return;
     }
