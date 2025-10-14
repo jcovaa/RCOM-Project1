@@ -28,6 +28,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         return;
     }
 
+    printf("Testing llclose\n");
+    if (llclose() == -1) {
+        printf("Error occured\n");
+        return;
+    }
+
     printf("\nEverything right\n");
     return;
 }
