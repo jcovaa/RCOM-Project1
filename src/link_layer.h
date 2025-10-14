@@ -7,7 +7,6 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h>
 
 typedef enum
 {
@@ -25,13 +24,24 @@ typedef struct
 } LinkLayer;
 
 typedef enum {
-    START_STATE,
-    FLAG_RCV,
-    A_RCV,
-    C_RCV,
-    BCC_OK,
-    STOP_STATE
+    CSTART_STATE,
+    CFLAG_RCV,
+    CA_RCV,
+    CC_RCV,
+    CBCC_OK,
+    CSTOP_STATE
 } ControlState;
+
+typedef enum {
+    ISTART_STAT,
+    IFLAG_RCV,
+    IA_RCV,
+    IC_RCV,
+    IBCC1_RCV,
+    IDATA_RCV,
+    IBCC2_RCV,
+    ISTOP_STATE
+} InformationState;
 
 // Size of maximum acceptable payload.
 // Maximum number of bytes that application layer should send to link layer.
