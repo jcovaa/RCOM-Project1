@@ -172,7 +172,7 @@ int llopen(LinkLayer connectionParameters) {
 
         printf("SET frame received correctly.\n");
 
-        unsigned char UA[5] = {FLAG, 0x03, 0x07, 0x03 ^ 0x07, FLAG};
+        unsigned char UA[5] = {FLAG, 0x01, 0x07, 0x01 ^ 0x07, FLAG};
         int bytes_sent = writeBytesSerialPort(UA, 5);
         printf("%d bytes written to serial port (UA frame)\n", bytes_sent);
 
