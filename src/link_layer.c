@@ -239,7 +239,6 @@ int llclose(LinkLayer connectionParameters) {
 
         unsigned char UA_tx[5] = {FLAG, 0x01, 0x07, 0x01 ^ 0x07, FLAG};
 
-        int attempts = 0;
         alarmEnabled = FALSE;
         alarmCount = 0;
 
