@@ -13,7 +13,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     LinkLayer connectionParameters;
     connectionParameters.baudRate = baudRate;
     connectionParameters.nRetransmissions = nTries;
-    if (strcmp(role, "LlTx") == 0) {
+    if (strcmp(role, "tx") == 0) {
         connectionParameters.role = LlTx;
     }
     else {
