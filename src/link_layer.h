@@ -4,6 +4,9 @@
 #ifndef _LINK_LAYER_H_
 #define _LINK_LAYER_H_
 
+#include <signal.h>
+#include <stdlib.h>
+
 typedef enum
 {
     LlTx,
@@ -18,6 +21,15 @@ typedef struct
     int nRetransmissions;
     int timeout;
 } LinkLayer;
+
+typedef enum {
+    START_STATE,
+    FLAG_RCV,
+    A_RCV,
+    C_RCV,
+    BCC_OK,
+    STOP_STATE
+} ControlState;
 
 // Size of maximum acceptable payload.
 // Maximum number of bytes that application layer should send to link layer.
@@ -42,5 +54,7 @@ int llread(unsigned char *packet);
 // Close previously opened connection and print transmission statistics in the console.
 // Return 0 on success or -1 on error.
 int llclose();
+
+void alarmHandler(int signal);
 
 #endif // _LINK_LAYER_H_
