@@ -244,6 +244,7 @@ int llclose(LinkLayer connectionParameters) {
 
         while (alarmCount < connectionParameters.nRetransmissions && !DISC_received) {
             if (!alarmEnabled) {
+                sleep(1);
                 printf("Sending DISC frame (attempt %d)\n", alarmCount + 1);
                 writeBytesSerialPort(DISC_tx, 5);
                 alarm(connectionParameters.timeout);
@@ -321,6 +322,7 @@ int llclose(LinkLayer connectionParameters) {
 
         if (!DISC_received) {
             printf("Failed to receive DISC after %d attempts\n", connectionParameters.nRetransmissions);
+            sleep(1);
             closeSerialPort();
             return -1;
         }
