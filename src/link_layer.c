@@ -56,8 +56,8 @@ int llopen(LinkLayer connectionParameters)
             }
 
             unsigned char byte;
-            ControlState state = START_STATE;
-            while (state != STOP_STATE)
+            ControlState state = CSTART_STATE;
+            while (state != CSTOP_STATE)
             {
                 int res = readByteSerialPort(&byte);
                 if (res <= 0)
@@ -65,42 +65,42 @@ int llopen(LinkLayer connectionParameters)
 
                 switch (state)
                 {
-                case START_STATE:
+                case CSTART_STATE:
                     if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     break;
-                case FLAG_RCV:
+                case CFLAG_RCV:
                     if (byte == 0x01)
-                        state = A_RCV;
+                        state = CA_RCV;
                     else if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     else
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
-                case A_RCV:
+                case CA_RCV:
                     if (byte == 0x07)
-                        state = C_RCV;
+                        state = CC_RCV;
                     else if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     else
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
-                case C_RCV:
+                case CC_RCV:
                     if (byte == (0x01 ^ 0x07))
-                        state = BCC_OK;
+                        state = CBCC_OK;
                     else if (byte == FLAG)
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     else
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
-                case BCC_OK:
+                case CBCC_OK:
                     if (byte == FLAG)
-                        state = STOP_STATE;
+                        state = CSTOP_STATE;
                     else
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     break;
                 default:
-                    state = START_STATE;
+                    state = CSTART_STATE;
                     break;
                 }
             }
@@ -132,8 +132,8 @@ int llopen(LinkLayer connectionParameters)
         printf("Serial port %s opened\n", connectionParameters.serialPort);
 
         unsigned char byte;
-        ControlState state = START_STATE;
-        while (state != STOP_STATE)
+        ControlState state = CSTART_STATE;
+        while (state != CSTOP_STATE)
         {
             int res = readByteSerialPort(&byte);
             if (res <= 0)
@@ -141,42 +141,42 @@ int llopen(LinkLayer connectionParameters)
 
             switch (state)
             {
-            case START_STATE:
+            case CSTART_STATE:
                 if (byte == FLAG)
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 break;
-            case FLAG_RCV:
+            case CFLAG_RCV:
                 if (byte == 0x03)
-                    state = A_RCV;
+                    state = CA_RCV;
                 else if (byte == FLAG)
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 else
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 break;
-            case A_RCV:
+            case CA_RCV:
                 if (byte == 0x03)
-                    state = C_RCV;
+                    state = CC_RCV;
                 else if (byte == FLAG)
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 else
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 break;
-            case C_RCV:
+            case CC_RCV:
                 if (byte == (0x03 ^ 0x03))
-                    state = BCC_OK;
+                    state = CBCC_OK;
                 else if (byte == FLAG)
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 else
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 break;
-            case BCC_OK:
+            case CBCC_OK:
                 if (byte == FLAG)
-                    state = STOP_STATE;
+                    state = CSTOP_STATE;
                 else
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 break;
             default:
-                state = START_STATE;
+                state = CSTART_STATE;
                 break;
             }
         }
@@ -262,8 +262,8 @@ int llclose(LinkLayer connectionParameters)
                 alarmEnabled = TRUE;
             }
 
-            state = START_STATE;
-            while (state != STOP_STATE)
+            state = CSTART_STATE;
+            while (state != CSTOP_STATE)
             {
                 int res = readByteSerialPort(&byte);
                 if (res <= 0)
@@ -273,66 +273,66 @@ int llclose(LinkLayer connectionParameters)
 
                 switch (state)
                 {
-                case START_STATE:
+                case CSTART_STATE:
                     if (byte == FLAG)
                     {
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     }
                     break;
-                case FLAG_RCV:
+                case CFLAG_RCV:
                     if (byte == DISC_A_rx)
                     {
-                        state = A_RCV;
+                        state = CA_RCV;
                     }
                     else if (byte == FLAG)
                     {
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     }
                     else
                     {
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     }
                     break;
-                case A_RCV:
+                case CA_RCV:
                     if (byte == DISC_C_rx)
                     {
-                        state = C_RCV;
+                        state = CC_RCV;
                     }
                     else if (byte == FLAG)
                     {
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     }
                     else
                     {
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     }
                     break;
-                case C_RCV:
+                case CC_RCV:
                     if (byte == (DISC_A_rx ^ DISC_C_rx))
                     {
-                        state = BCC_OK;
+                        state = CBCC_OK;
                     }
                     else if (byte == FLAG)
                     {
-                        state = FLAG_RCV;
+                        state = CFLAG_RCV;
                     }
                     else
                     {
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     }
                     break;
-                case BCC_OK:
+                case CBCC_OK:
                     if (byte == FLAG)
                     {
-                        state = STOP_STATE;
+                        state = CSTOP_STATE;
                     }
                     else
                     {
-                        state = START_STATE;
+                        state = CSTART_STATE;
                     }
                     break;
                 default:
-                    state = START_STATE;
+                    state = CSTART_STATE;
                     break;
                 }
             }
@@ -370,8 +370,8 @@ int llclose(LinkLayer connectionParameters)
         unsigned char DISC_reply[5] = {FLAG, 0x01, 0x0B, (0x01 ^ 0x0B), FLAG};
         unsigned char DISC_A_tx = 0x03, DISC_C_tx = 0x0B;
 
-        state = START_STATE;
-        while (state != STOP_STATE)
+        state = CSTART_STATE;
+        while (state != CSTOP_STATE)
         {
             int res = readByteSerialPort(&byte);
             if (res <= 0)
@@ -381,66 +381,66 @@ int llclose(LinkLayer connectionParameters)
 
             switch (state)
             {
-            case START_STATE:
+            case CSTART_STATE:
                 if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 break;
-            case FLAG_RCV:
+            case CFLAG_RCV:
                 if (byte == DISC_A_tx)
                 {
-                    state = A_RCV;
+                    state = CA_RCV;
                 }
                 else if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
-            case A_RCV:
+            case CA_RCV:
                 if (byte == DISC_C_tx)
                 {
-                    state = C_RCV;
+                    state = CC_RCV;
                 }
                 else if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
-            case C_RCV:
+            case CC_RCV:
                 if (byte == (DISC_A_tx ^ DISC_C_tx))
                 {
-                    state = BCC_OK;
+                    state = CBCC_OK;
                 }
                 else if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
-            case BCC_OK:
+            case CBCC_OK:
                 if (byte == FLAG)
                 {
-                    state = STOP_STATE;
+                    state = CSTOP_STATE;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
             default:
-                state = START_STATE;
+                state = CSTART_STATE;
                 break;
             }
         }
@@ -450,10 +450,10 @@ int llclose(LinkLayer connectionParameters)
         int bytes_sent = writeBytesSerialPort(DISC_reply, 5);
         printf("%d bytes written to serial port (DISC reply)\n", bytes_sent);
 
-        state = START_STATE;
+        state = CSTART_STATE;
         unsigned char UA_A = 0x01, UA_C = 0x07;
 
-        while (state != STOP_STATE)
+        while (state != CSTOP_STATE)
         {
             int res = readByteSerialPort(&byte);
             if (res <= 0)
@@ -463,66 +463,66 @@ int llclose(LinkLayer connectionParameters)
 
             switch (state)
             {
-            case START_STATE:
+            case CSTART_STATE:
                 if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 break;
-            case FLAG_RCV:
+            case CFLAG_RCV:
                 if (byte == UA_A)
                 {
-                    state = A_RCV;
+                    state = CA_RCV;
                 }
                 else if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
-            case A_RCV:
+            case CA_RCV:
                 if (byte == UA_C)
                 {
-                    state = C_RCV;
+                    state = CC_RCV;
                 }
                 else if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
-            case C_RCV:
+            case CC_RCV:
                 if (byte == (UA_A ^ UA_C))
                 {
-                    state = BCC_OK;
+                    state = CBCC_OK;
                 }
                 else if (byte == FLAG)
                 {
-                    state = FLAG_RCV;
+                    state = CFLAG_RCV;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
-            case BCC_OK:
+            case CBCC_OK:
                 if (byte == FLAG)
                 {
-                    state = STOP_STATE;
+                    state = CSTOP_STATE;
                 }
                 else
                 {
-                    state = START_STATE;
+                    state = CSTART_STATE;
                 }
                 break;
             default:
-                state = START_STATE;
+                state = CSTART_STATE;
                 break;
             }
         }
