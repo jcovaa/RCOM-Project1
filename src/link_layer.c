@@ -401,7 +401,7 @@ int readResponse(int expectedNr)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet) {
     static int expectedNs = 0;
-    unsigned char frame[4096];
+    unsigned char frame[MAX_PAYLOAD_SIZE + 6];
     unsigned char byte;
     int idx = 0;
 
@@ -414,6 +414,10 @@ int llread(unsigned char *packet) {
             }
 
             frame[idx++] = byte;
+
+            if (idx >= MAX_PAYLOAD_SIZE + 6) {
+                return -1;
+            }
         }
     } while (!(idx > 1 && byte == FLAG));
 
