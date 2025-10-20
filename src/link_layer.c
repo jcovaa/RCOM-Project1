@@ -7,6 +7,10 @@
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
 #define FLAG 0x7E
+#define A_SET 0x03
+#define A_UA 0x01
+#define C_SET 0x03
+#define C_UA 0x07
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -43,7 +47,7 @@ int llopen(LinkLayer connectionParameters)
             return -1;
         }
 
-        unsigned char SET[5] = {0x7E, 0x03, 0x03, 0x03 ^ 0x03, 0x7E};
+        unsigned char SET[5] = {FLAG, A_SET, C_SET, A_SET ^ C_SET, FLAG};
 
         while (alarmCount < connectionParameters.nRetransmissions && !UA_received)
         {
@@ -109,6 +113,7 @@ int llopen(LinkLayer connectionParameters)
             UA_received = TRUE;
             alarm(0);
             alarmEnabled = FALSE;
+            break;
         }
 
         if (!UA_received)
@@ -183,7 +188,7 @@ int llopen(LinkLayer connectionParameters)
 
         printf("SET frame received correctly.\n");
 
-        unsigned char UA[5] = {FLAG, 0x01, 0x07, 0x01 ^ 0x07, FLAG};
+        unsigned char UA[5] = {FLAG, A_UA, C_UA, A_UA ^ C_UA, FLAG};
         int bytes_sent = writeBytesSerialPort(UA, 5);
         printf("%d bytes written to serial port (UA frame)\n", bytes_sent);
 
@@ -203,7 +208,6 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO: Implement this function
 
     return 0;
 }
