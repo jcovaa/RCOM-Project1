@@ -313,6 +313,20 @@ int byteStuffing(const unsigned char *input, int input_len, unsigned char *outpu
     return j;
 }
 
+int byteDestuffing(const unsigned char *input, int input_len, unsigned char *output) {
+    int j = 0;
+    for (int i = 0; i < input_len; i++) {
+        if (input[i] == ESC) {
+            i++;
+            output[j++] = input[i] ^ STUFF_XOR;
+        }
+        else {
+            output[j++] = input[i];
+        }
+    }
+    return j;
+}
+
 int readResponse(int expectedNr)
 {
     unsigned char byte;
@@ -385,11 +399,54 @@ int readResponse(int expectedNr)
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-int llread(unsigned char *packet)
-{
-    // TODO: Implement this function
+int llread(unsigned char *packet) {
+    static int expectedNs = 0;
+    unsigned char frame[4096];
+    unsigned char byte;
+    int idx = 0;
 
-    return 0;
+    do {
+        int res = readByteSerialPort(&byte);
+
+        if (res > 0) {
+            if (idx == 0 && byte != FLAG) {
+                continue;
+            }
+
+            frame[idx++] = byte;
+        }
+    } while (!(idx > 1 && byte == FLAG));
+
+
+    int destuffedLen = byteDestuffing(frame + 1, idx - 2, frame + 1);
+
+    unsigned char A = frame[1], C = frame[2], BCC1 = frame[3];
+
+    if ((A ^ C) != BCC1) {
+        unsigned char rej[5] = {FLAG, A_I, C_REJ(expectedNs), A_I ^ C_REJ(expectedNs), FLAG};
+        writeBytesSerialPort(rej, 5);
+        return -1;
+    }
+
+    int dataLen = destuffedLen - 4;
+    unsigned char BCC2 = 0x00;
+    for (int i = 0; i < dataLen; i++) {
+        BCC2 ^= frame[4 + i];
+    }
+
+    if (BCC2 != frame[4 + dataLen]) {
+        unsigned char rej[5] = {FLAG, A_I, C_REJ(expectedNs), A_I ^ C_REJ(expectedNs), FLAG};
+        writeBytesSerialPort(rej, 5);
+        return -1;
+    }
+
+    memcpy(packet, frame + 4, dataLen);
+
+    unsigned char rr[5] = {FLAG, A_I, C_RR((expectedNs + 1) % 2), A_I ^ C_RR((expectedNs + 1) % 2), FLAG};
+    writeBytesSerialPort(rr, 5);
+
+    expectedNs = (expectedNs + 1) % 2;
+    return dataLen;
 }
 
 ////////////////////////////////////////////////

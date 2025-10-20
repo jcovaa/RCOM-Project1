@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef enum
 {
@@ -73,5 +74,9 @@ int llread(unsigned char *packet);
 int llclose();
 
 void alarmHandler(int signal);
+
+int byteStuffing(const unsigned char *input, int input_len, unsigned char *output);
+int readResponse(int expectedNr);
+int byteDestuffing(const unsigned char *input, int input_len, unsigned char *output);
 
 #endif // _LINK_LAYER_H_
