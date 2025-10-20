@@ -416,19 +416,29 @@ int llread(unsigned char *packet) {
             frame[idx++] = byte;
 
             if (idx >= MAX_PAYLOAD_SIZE + 6) {
+                printf("Frame is too large.\n");
                 return -1;
             }
         }
     } while (!(idx > 1 && byte == FLAG));
 
+    printf("Frame received (%d bytes): ", idx);
+    for (int i = 0; i < idx; i++) printf("%02X ", frame[i]);
+    printf("\n");
 
     int destuffedLen = byteDestuffing(frame + 1, idx - 2, frame + 1);
+
+    printf("Destuffed frame (%d bytes): ", destuffedLen + 1);
+    for (int i = 0; i < destuffedLen + 1; i++) printf("%02X ", frame[i]);
+    printf("\n");
 
     unsigned char A = frame[1], C = frame[2], BCC1 = frame[3];
 
     if ((A ^ C) != BCC1) {
+        printf("BCC1 error: expected %02X, got %02X. Sending REJ.\n", (A ^ C), BCC1);
         unsigned char rej[5] = {FLAG, A_I, C_REJ(expectedNs), A_I ^ C_REJ(expectedNs), FLAG};
         writeBytesSerialPort(rej, 5);
+        printf("REJ sent.\n");
         return -1;
     }
 
@@ -439,8 +449,10 @@ int llread(unsigned char *packet) {
     }
 
     if (BCC2 != frame[4 + dataLen]) {
+        printf("BCC2 error: expected %02X, got %02X. Sending REJ.\n", BCC2, frame[4 + dataLen]);
         unsigned char rej[5] = {FLAG, A_I, C_REJ(expectedNs), A_I ^ C_REJ(expectedNs), FLAG};
         writeBytesSerialPort(rej, 5);
+        printf("REJ sent.\n");
         return -1;
     }
 
@@ -448,6 +460,9 @@ int llread(unsigned char *packet) {
 
     unsigned char rr[5] = {FLAG, A_I, C_RR((expectedNs + 1) % 2), A_I ^ C_RR((expectedNs + 1) % 2), FLAG};
     writeBytesSerialPort(rr, 5);
+    printf("RR sent, expecting Ns=%d next.\n", (expectedNs + 1) % 2);
+
+    printf("Packet received correctly (Ns=%d, %d bytes).\n", expectedNs, dataLen);
 
     expectedNs = (expectedNs + 1) % 2;
     return dataLen;
