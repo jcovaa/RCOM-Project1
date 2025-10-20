@@ -221,7 +221,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     alarmCount = 0;
     alarmEnabled = FALSE;
 
-    unsigned char tempFrame[bufSize + 6];
+    unsigned char tempFrame[bufSize + 6]; // maximum size needed for FLAG + A + C + BCC1 + DATA + BCC2 + FLAG
     int idx = 0;
 
     tempFrame[idx++] = FLAG;
@@ -233,6 +233,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     for (int i = 0; i < bufSize; i++)
         BCC2 ^= buf[i];
 
+    // Copy data payload from the application buffer into the frame (after header)
     memcpy(&tempFrame[idx], buf, bufSize);
     idx += bufSize;
 
@@ -241,7 +242,10 @@ int llwrite(const unsigned char *buf, int bufSize)
 
     unsigned char stuffedFrame[2 * (bufSize + 6)];
     int headerLen = 4;
+
+    // Copy header (FLAG, A, C, BCC1) to stuffed frame without modifications
     memcpy(stuffedFrame, tempFrame, headerLen);
+    // Apply byte stuffing only to DATA + BCC2 + FLAG
     int stuffedDataLen = byteStuffing(tempFrame + headerLen, bufSize + 2, stuffedFrame + headerLen);
     int frameSize = headerLen + stuffedDataLen;
 
@@ -312,9 +316,10 @@ int byteStuffing(const unsigned char *input, int input_len, unsigned char *outpu
 int readResponse(int expectedNr)
 {
     unsigned char byte;
-    int state = 0;
+    ControlState state = CSTART_STATE;
     unsigned char C_field = 0;
 
+    // True because llwrite already handles with alarm
     while (TRUE)
     {
         int res = readByteSerialPort(&byte);
@@ -323,55 +328,55 @@ int readResponse(int expectedNr)
 
         switch (state)
         {
-        case 0:
+        case CSTART_STATE:
             if (byte == FLAG)
-                state = 1;
+                state = CFLAG_RCV;
             break;
-        case 1:
+        case CFLAG_RCV:
             if (byte == 0x01)
-                state = 2;
+                state = CA_RCV;
             else if (byte == FLAG)
-                state = 1;
+                state = CFLAG_RCV;
             else
-                state = 0;
+                state = CSTART_STATE;
             break;
-        case 2:
+        case CA_RCV:
             if (byte == C_RR(expectedNr))
             {
                 C_field = byte;
-                state = 3;
+                state = CC_RCV;
             }
             else if (byte == C_REJ(expectedNr))
             {
                 C_field = byte;
-                state = 3;
+                state = CC_RCV;
             }
             else if (byte == FLAG)
-                state = 1;
+                state = CFLAG_RCV;
             else
-                state = 0;
+                state = CSTART_STATE;
             break;
-        case 3:
+        case CC_RCV:
             if (byte == (0x01 ^ C_field))
-                state = 4;
+                state = CBCC_OK;
             else if (byte == FLAG)
-                state = 1;
+                state = CFLAG_RCV;
             else
-                state = 0;
+                state = CSTART_STATE;
             break;
-        case 4:
+        case CBCC_OK:
             if (byte == FLAG)
             {
                 if ((C_field & 0x01) == 0x01)
-                    return -1;
+                    return -1; // REJ
                 else
-                    return 1;
+                    return 1; // RR
             }
             else
-                state = 0;
+                state = CSTART_STATE;
             break;
         default:
-            state = 0;
+            state = CSTART_STATE;
             break;
         }
     }
