@@ -12,6 +12,15 @@
 #define C_SET 0x03
 #define C_UA 0x07
 
+#define A_I 0x03
+#define C_I(Ns) ((Ns) << 7) // Test with << 6
+#define ESC 0x7D
+#define STUFF_XOR 0x20
+#define C_RR(Nr) (0x05 | ((Nr) << 7))
+#define C_REJ(Nr) (0x01 | ((Nr) << 7))
+
+extern LinkLayer linkLayerParams;
+
 int alarmEnabled = FALSE;
 int alarmCount = 0;
 int UA_received = FALSE;
@@ -208,8 +217,164 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
+    static int Ns = 0;
+    alarmCount = 0;
+    alarmEnabled = FALSE;
 
-    return 0;
+    unsigned char tempFrame[bufSize + 6];
+    int idx = 0;
+
+    tempFrame[idx++] = FLAG;
+    tempFrame[idx++] = A_I;
+    tempFrame[idx++] = C_I(Ns);
+    tempFrame[idx++] = A_I ^ C_I(Ns); // BCC1
+
+    unsigned char BCC2 = 0x00;
+    for (int i = 0; i < bufSize; i++)
+        BCC2 ^= buf[i];
+
+    memcpy(&tempFrame[idx], buf, bufSize);
+    idx += bufSize;
+
+    tempFrame[idx++] = BCC2;
+    tempFrame[idx++] = FLAG;
+
+    unsigned char stuffedFrame[2 * (bufSize + 6)];
+    int headerLen = 4;
+    memcpy(stuffedFrame, tempFrame, headerLen);
+    int stuffedDataLen = byteStuffing(tempFrame + headerLen, bufSize + 2, stuffedFrame + headerLen);
+    int frameSize = headerLen + stuffedDataLen;
+
+    struct sigaction act = {0};
+    act.sa_handler = &alarmHandler;
+    if (sigaction(SIGALRM, &act, NULL) == -1)
+    {
+        perror("sigaction");
+        return -1;
+    }
+
+    while (alarmCount < 3)
+    {
+        if (!alarmEnabled)
+        {
+            // printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, alarmCount + 1);
+            writeBytesSerialPort(stuffedFrame, frameSize);
+            alarm(4);
+            alarmEnabled = TRUE;
+        }
+
+        int response = readResponse((Ns + 1) % 2);
+
+        if (response == 1)
+        {
+            printf("RR received, frame acknowledged.\n");
+            alarm(0);
+            alarmEnabled = FALSE;
+            Ns = (Ns + 1) % 2;
+            return bufSize;
+        }
+        else if (response == -1)
+        {
+            printf("REJ received, retransmitting frame.\n");
+            alarm(0);
+            alarmEnabled = FALSE;
+        }
+    }
+
+    printf("Failed to receive RR after 3 attempts, llwrite failed.\n");
+    return -1;
+}
+
+int byteStuffing(const unsigned char *input, int input_len, unsigned char *output)
+{
+    int j = 0;
+    for (int i = 0; i < input_len; i++)
+    {
+        if (input[i] == FLAG)
+        {
+            output[j++] = ESC;
+            output[j++] = FLAG ^ STUFF_XOR;
+        }
+        else if (input[i] == ESC)
+        {
+            output[j++] = ESC;
+            output[j++] = ESC ^ STUFF_XOR;
+        }
+        else
+        {
+            output[j++] = input[i];
+        }
+    }
+
+    return j;
+}
+
+int readResponse(int expectedNr)
+{
+    unsigned char byte;
+    int state = 0;
+    unsigned char C_field = 0;
+
+    while (TRUE)
+    {
+        int res = readByteSerialPort(&byte);
+        if (res <= 0)
+            continue;
+
+        switch (state)
+        {
+        case 0:
+            if (byte == FLAG)
+                state = 1;
+            break;
+        case 1:
+            if (byte == 0x01)
+                state = 2;
+            else if (byte == FLAG)
+                state = 1;
+            else
+                state = 0;
+            break;
+        case 2:
+            if (byte == C_RR(expectedNr))
+            {
+                C_field = byte;
+                state = 3;
+            }
+            else if (byte == C_REJ(expectedNr))
+            {
+                C_field = byte;
+                state = 3;
+            }
+            else if (byte == FLAG)
+                state = 1;
+            else
+                state = 0;
+            break;
+        case 3:
+            if (byte == (0x01 ^ C_field))
+                state = 4;
+            else if (byte == FLAG)
+                state = 1;
+            else
+                state = 0;
+            break;
+        case 4:
+            if (byte == FLAG)
+            {
+                if ((C_field & 0x01) == 0x01)
+                    return -1;
+                else
+                    return 1;
+            }
+            else
+                state = 0;
+            break;
+        default:
+            state = 0;
+            break;
+        }
+    }
 }
 
 ////////////////////////////////////////////////
