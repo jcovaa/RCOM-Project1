@@ -274,7 +274,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             printf("RR received, frame acknowledged.\n");
             alarm(0);
             alarmEnabled = FALSE;
-            Ns = (Ns + 1) % 2;
+            Ns = (Ns + 1) % 2; // Toggle Ns 0 -> 1 or 1 -> 0
             return bufSize;
         }
         else if (response == -1)
