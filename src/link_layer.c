@@ -279,7 +279,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             alarm(0);
             alarmEnabled = FALSE;
             Ns = (Ns + 1) % 2; // Toggle Ns 0 -> 1 or 1 -> 0
-            return frameSize;  // Check if its better to return bufSize
+            return frameSize;
         }
         else if (response == -1)
         {
