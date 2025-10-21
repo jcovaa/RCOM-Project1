@@ -19,7 +19,8 @@
 #define C_RR(Nr) (0x05 | ((Nr) << 7))
 #define C_REJ(Nr) (0x01 | ((Nr) << 7))
 
-extern LinkLayer linkLayerParams;
+int timeout = 0;
+int nrTries = 0;
 
 int alarmEnabled = FALSE;
 int alarmCount = 0;
@@ -36,6 +37,9 @@ int llopen(LinkLayer connectionParameters)
     alarmCount = 0;
     UA_received = FALSE;
     DISC_received = FALSE;
+
+    timeout = connectionParameters.timeout;
+    nrTries = connectionParameters.nRetransmissions;
 
     // Transmitter
     if (connectionParameters.role == LlTx)
@@ -257,13 +261,13 @@ int llwrite(const unsigned char *buf, int bufSize)
         return -1;
     }
 
-    while (alarmCount < 3)
+    while (alarmCount < nrTries)
     {
         if (!alarmEnabled)
         {
             // printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, alarmCount + 1);
             writeBytesSerialPort(stuffedFrame, frameSize);
-            alarm(4);
+            alarm(timeout);
             alarmEnabled = TRUE;
         }
 
@@ -313,14 +317,18 @@ int byteStuffing(const unsigned char *input, int input_len, unsigned char *outpu
     return j;
 }
 
-int byteDestuffing(const unsigned char *input, int input_len, unsigned char *output) {
+int byteDestuffing(const unsigned char *input, int input_len, unsigned char *output)
+{
     int j = 0;
-    for (int i = 0; i < input_len; i++) {
-        if (input[i] == ESC) {
+    for (int i = 0; i < input_len; i++)
+    {
+        if (input[i] == ESC)
+        {
             i++;
             output[j++] = input[i] ^ STUFF_XOR;
         }
-        else {
+        else
+        {
             output[j++] = input[i];
         }
     }
@@ -399,23 +407,28 @@ int readResponse(int expectedNr)
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-int llread(unsigned char *packet) {
+int llread(unsigned char *packet)
+{
     static int expectedNs = 0;
     unsigned char frame[MAX_PAYLOAD_SIZE + 6];
     unsigned char byte;
     int idx = 0;
 
-    do {
+    do
+    {
         int res = readByteSerialPort(&byte);
 
-        if (res > 0) {
-            if (idx == 0 && byte != FLAG) {
+        if (res > 0)
+        {
+            if (idx == 0 && byte != FLAG)
+            {
                 continue;
             }
 
             frame[idx++] = byte;
 
-            if (idx >= MAX_PAYLOAD_SIZE + 6) {
+            if (idx >= MAX_PAYLOAD_SIZE + 6)
+            {
                 printf("Frame is too large.\n");
                 return -1;
             }
@@ -423,18 +436,21 @@ int llread(unsigned char *packet) {
     } while (!(idx > 1 && byte == FLAG));
 
     printf("Frame received (%d bytes): ", idx);
-    for (int i = 0; i < idx; i++) printf("%02X ", frame[i]);
+    for (int i = 0; i < idx; i++)
+        printf("%02X ", frame[i]);
     printf("\n");
 
     int destuffedLen = byteDestuffing(frame + 1, idx - 2, frame + 1);
 
     printf("Destuffed frame (%d bytes): ", destuffedLen + 1);
-    for (int i = 0; i < destuffedLen + 1; i++) printf("%02X ", frame[i]);
+    for (int i = 0; i < destuffedLen + 1; i++)
+        printf("%02X ", frame[i]);
     printf("\n");
 
     unsigned char A = frame[1], C = frame[2], BCC1 = frame[3];
 
-    if ((A ^ C) != BCC1) {
+    if ((A ^ C) != BCC1)
+    {
         printf("BCC1 error: expected %02X, got %02X. Sending REJ.\n", (A ^ C), BCC1);
         unsigned char rej[5] = {FLAG, A_I, C_REJ(expectedNs), A_I ^ C_REJ(expectedNs), FLAG};
         writeBytesSerialPort(rej, 5);
@@ -444,11 +460,13 @@ int llread(unsigned char *packet) {
 
     int dataLen = destuffedLen - 4;
     unsigned char BCC2 = 0x00;
-    for (int i = 0; i < dataLen; i++) {
+    for (int i = 0; i < dataLen; i++)
+    {
         BCC2 ^= frame[4 + i];
     }
 
-    if (BCC2 != frame[4 + dataLen]) {
+    if (BCC2 != frame[4 + dataLen])
+    {
         printf("BCC2 error: expected %02X, got %02X. Sending REJ.\n", BCC2, frame[4 + dataLen]);
         unsigned char rej[5] = {FLAG, A_I, C_REJ(expectedNs), A_I ^ C_REJ(expectedNs), FLAG};
         writeBytesSerialPort(rej, 5);
