@@ -249,9 +249,10 @@ int llwrite(const unsigned char *buf, int bufSize)
 
     // Copy header (FLAG, A, C, BCC1) to stuffed frame without modifications
     memcpy(stuffedFrame, tempFrame, headerLen);
-    // Apply byte stuffing only to DATA + BCC2 + FLAG
-    int stuffedDataLen = byteStuffing(tempFrame + headerLen, bufSize + 2, stuffedFrame + headerLen);
+    // Apply byte stuffing only to DATA + BCC2
+    int stuffedDataLen = byteStuffing(tempFrame + headerLen, bufSize + 1, stuffedFrame + headerLen);
     int frameSize = headerLen + stuffedDataLen;
+    stuffedFrame[frameSize++] = FLAG;
 
     struct sigaction act = {0};
     act.sa_handler = &alarmHandler;
