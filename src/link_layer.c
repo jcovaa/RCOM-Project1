@@ -15,9 +15,9 @@
 #define C_UA 0x07
 #define C_DISC 0x0B
 
-#define C_I(Ns) (Ns << 6)
-#define C_RR(Nr) ((Nr << 7) | 0x05)
-#define C_REJ(Nr) ((Nr << 7) | 0x01)
+#define C_I(Ns) (Ns << 7)
+#define C_RR(Nr) ((Nr << 7) | 0xAA)
+#define C_REJ(Nr) ((Nr << 7) | 0x54)
 
 #define ESC 0x7D
 #define STUFF_XOR 0x20
@@ -262,6 +262,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     tempFrame[idx++] = FLAG;
 
     unsigned char stuffedFrame[2 * (bufSize + 6)];
+
     int headerLen = 4;
 
     // Copy header (FLAG, A, C, BCC1) to stuffed frame without modifications
