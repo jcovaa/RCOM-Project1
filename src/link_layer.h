@@ -39,7 +39,7 @@ typedef enum
 // Information state for information frame
 typedef enum
 {
-    ISTART_STAT,
+    ISTART_STATE,
     IFLAG_RCV,
     IA_RCV,
     IC_RCV,

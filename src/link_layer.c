@@ -16,26 +16,12 @@
 #define C_DISC 0x0B
 
 #define C_I(Ns) (Ns << 7)
-#define C_RR(Nr) ((Nr << 7) | 0xAA)
-#define C_REJ(Nr) ((Nr << 7) | 0x54)
+#define C_RR(Nr) ((Nr) ? 0xAB : 0xAA)
+#define C_REJ(Nr) ((Nr) ? 0x55 : 0x54)
 
 #define ESC 0x7D
 #define STUFF_XOR 0x20
 
-/*
-#define FLAG 0x7E
-#define A_SET 0x03
-#define A_UA 0x01
-#define C_SET 0x03
-#define C_UA 0x07
-
-#define A_I 0x03
-#define C_I(Ns) ((Ns) << 7) // Test with << 6
-#define ESC 0x7D
-#define STUFF_XOR 0x20
-#define C_RR(Nr) (0x05 | ((Nr) << 7))
-#define C_REJ(Nr) (0x01 | ((Nr) << 7))
-*/
 int timeout = 0;
 int nrTries = 0;
 
@@ -252,25 +238,22 @@ int llwrite(const unsigned char *buf, int bufSize)
 
     unsigned char BCC2 = 0x00;
     for (int i = 0; i < bufSize; i++)
+    {
         BCC2 ^= buf[i];
+    }
 
-    // Copy data payload from the application buffer into the frame (after header)
+    // Copy data payload
     memcpy(&tempFrame[idx], buf, bufSize);
     idx += bufSize;
-
     tempFrame[idx++] = BCC2;
-    tempFrame[idx++] = FLAG;
 
     unsigned char stuffedFrame[2 * (bufSize + 6)];
+    stuffedFrame[0] = FLAG;
 
-    int headerLen = 4;
+    int stuffedLen = byteStuffing(tempFrame + 1, idx - 1, stuffedFrame + 1);
 
-    // Copy header (FLAG, A, C, BCC1) to stuffed frame without modifications
-    memcpy(stuffedFrame, tempFrame, headerLen);
-    // Apply byte stuffing only to DATA + BCC2
-    int stuffedDataLen = byteStuffing(tempFrame + headerLen, bufSize + 1, stuffedFrame + headerLen);
-    int frameSize = headerLen + stuffedDataLen;
-    stuffedFrame[frameSize++] = FLAG;
+    stuffedFrame[1 + stuffedLen] = FLAG;
+    int frameSize = 1 + stuffedLen + 1;
 
     struct sigaction act = {0};
     act.sa_handler = &alarmHandler;
@@ -280,35 +263,42 @@ int llwrite(const unsigned char *buf, int bufSize)
         return -1;
     }
 
-    while (alarmCount < nrTries)
+    int attempts = 0;
+    while (attempts < nrTries)
     {
         if (!alarmEnabled)
         {
-            // printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, alarmCount + 1);
+            printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, alarmCount + 1);
             writeBytesSerialPort(stuffedFrame, frameSize);
             alarm(timeout);
             alarmEnabled = TRUE;
         }
 
-        int response = readResponse((Ns + 1) % 2);
+        int response = readResponse(Ns);
 
         if (response == 1)
         {
             printf("RR received, frame acknowledged.\n");
             alarm(0);
             alarmEnabled = FALSE;
-            Ns = (Ns + 1) % 2; // Toggle Ns 0 -> 1 or 1 -> 0
-            return frameSize;
+            Ns = (Ns + 1) % 2; // Toggle Ns
+            return bufSize;
         }
         else if (response == -1)
         {
             printf("REJ received, retransmitting frame.\n");
             alarm(0);
             alarmEnabled = FALSE;
+            attempts++;
+        }
+        else if (response == 0)
+        {
+            printf("Timeout waiting for RR/REJ, retransmitting frame.\n");
+            attempts++;
         }
     }
 
-    printf("Failed to receive RR after 3 attempts, llwrite failed.\n");
+    printf("Failed to receive RR after %d attempts, llwrite failed.\n", nrTries);
     return -1;
 }
 
@@ -354,15 +344,19 @@ int byteDestuffing(const unsigned char *input, int input_len, unsigned char *out
     return j;
 }
 
-int readResponse(int expectedNr)
+int readResponse(int Ns)
 {
     unsigned char byte;
     ControlState state = CSTART_STATE;
     unsigned char C_field = 0;
+    int expectedNr = (Ns + 1) % 2;
+    int startAlamrs = alarmCount;
 
-    // True because llwrite already handles with alarm
     while (TRUE)
     {
+        if (!alarmEnabled && alarmCount > startAlamrs)
+            return 0;
+
         int res = readByteSerialPort(&byte);
         if (res <= 0)
             continue;
@@ -374,7 +368,7 @@ int readResponse(int expectedNr)
                 state = CFLAG_RCV;
             break;
         case CFLAG_RCV:
-            if (byte == A_TR_R)
+            if (byte == A_R_TR)
                 state = CA_RCV;
             else if (byte == FLAG)
                 state = CFLAG_RCV;
@@ -382,12 +376,14 @@ int readResponse(int expectedNr)
                 state = CSTART_STATE;
             break;
         case CA_RCV:
+            // RR with Nr = (Ns + 1) % 2
             if (byte == C_RR(expectedNr))
             {
                 C_field = byte;
                 state = CC_RCV;
             }
-            else if (byte == C_REJ(expectedNr))
+            // REJ with Nr = Ns
+            else if (byte == C_REJ(Ns))
             {
                 C_field = byte;
                 state = CC_RCV;
@@ -398,7 +394,7 @@ int readResponse(int expectedNr)
                 state = CSTART_STATE;
             break;
         case CC_RCV:
-            if (byte == (A_TR_R ^ C_field))
+            if (byte == (A_R_TR ^ C_field))
                 state = CBCC_OK;
             else if (byte == FLAG)
                 state = CFLAG_RCV;
@@ -408,10 +404,10 @@ int readResponse(int expectedNr)
         case CBCC_OK:
             if (byte == FLAG)
             {
-                if ((C_field & 0x01) == 0x01)
-                    return -1; // REJ
+                if (C_field == C_REJ(Ns))
+                    return -1; // REJ received
                 else
-                    return 1; // RR
+                    return 1; // RR received
             }
             else
                 state = CSTART_STATE;
@@ -428,7 +424,128 @@ int readResponse(int expectedNr)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    return 0;
+    static int expectedNs = 0;
+
+    for (;;)
+    {
+        unsigned char byte;
+        InformationState state = ISTART_STATE;
+
+        unsigned char stuffedFrame[MAX_PAYLOAD_SIZE * 2 + 10];
+        int stuffedLen = 0;
+
+        while (state != ISTOP_STATE)
+        {
+            int res = readByteSerialPort(&byte);
+            if (res <= 0)
+                continue;
+
+            switch (state)
+            {
+            case ISTART_STATE:
+                if (byte == FLAG)
+                {
+                    state = IFLAG_RCV;
+                    stuffedLen = 0;
+                }
+                break;
+            case IFLAG_RCV:
+                if (byte == FLAG)
+                    state = IFLAG_RCV;
+                else
+                {
+                    stuffedFrame[stuffedLen++] = byte;
+                    state = IDATA_RCV;
+                }
+                break;
+            case IDATA_RCV:
+                if (byte == FLAG)
+                    state = ISTOP_STATE;
+                else
+                    stuffedFrame[stuffedLen++] = byte;
+                break;
+            default:
+                state = ISTART_STATE;
+                break;
+            }
+        }
+
+        unsigned char destuffedFrame[MAX_PAYLOAD_SIZE + 10];
+        int destuffedLen = byteDestuffing(stuffedFrame, stuffedLen, destuffedFrame);
+
+        if (destuffedLen < 4)
+        {
+            printf("Frame too short after destuffing (%d bytes).\n", destuffedLen);
+            continue; // keep listening
+        }
+
+        unsigned char A_field = destuffedFrame[0];
+        unsigned char C_field = destuffedFrame[1];
+        unsigned char BCC1 = destuffedFrame[2];
+
+        if (A_field != A_TR_R)
+        {
+            printf("Invalid A field: 0x%02X\n", A_field);
+            continue; // silently discard and keep listening
+        }
+
+        // Must be an I frame
+        if (C_field != C_I(0) && C_field != C_I(1))
+        {
+            // Not our data frame; ignore
+            continue;
+        }
+
+        // Validate BCC1
+        if (BCC1 != (A_field ^ C_field))
+        {
+            printf("BCC1 validation failed, frame discarded.\n");
+            continue; // silently discard
+        }
+
+        int dataLen = destuffedLen - 4;
+        unsigned char receivedBCC2 = destuffedFrame[destuffedLen - 1];
+
+        unsigned char calculatedBCC2 = 0x00;
+        for (int i = 0; i < dataLen; i++)
+        {
+            calculatedBCC2 ^= destuffedFrame[3 + i];
+        }
+
+        int receivedNs = (C_field >> 7) & 0x01;
+        if (receivedBCC2 != calculatedBCC2)
+        {
+            printf("BCC2 error detected (expected 0x%02X, got 0x%02X), sending REJ(%d).\n",
+                   calculatedBCC2, receivedBCC2, expectedNs);
+            unsigned char REJ[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+            writeBytesSerialPort(REJ, 5);
+            continue; // wait for retransmission
+        }
+
+        if (receivedNs == expectedNs)
+        {
+            printf("Valid I frame received with Ns=%d, sending RR(%d).\n", receivedNs, (expectedNs + 1) % 2);
+
+            memcpy(packet, destuffedFrame + 3, dataLen);
+
+            int nextNr = (expectedNs + 1) % 2;
+            unsigned char RR[5] = {FLAG, A_R_TR, C_RR(nextNr), A_R_TR ^ C_RR(nextNr), FLAG};
+            writeBytesSerialPort(RR, 5);
+
+            expectedNs = nextNr;
+
+            return dataLen;
+        }
+        else
+        {
+            printf("Duplicate I frame received with Ns=%d, re-sending RR(%d).\n", receivedNs, expectedNs);
+
+            unsigned char RR[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
+            writeBytesSerialPort(RR, 5);
+
+            continue; // do not return to app on duplicate
+        }
+    }
 }
 
 ////////////////////////////////////////////////
