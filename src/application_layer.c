@@ -16,10 +16,10 @@ static int build_control_packet(uint8_t ctrl, const char *filename, uint32_t fil
 {
     if (!out || !out_len)
         return -1;
+
     int idx = 0;
     out[idx++] = ctrl;
 
-    // T_FILE_SIZE (4 bytes, big-endian)
     out[idx++] = T_FILE_SIZE;
     out[idx++] = 4;
     out[idx++] = (filesize >> 24) & 0xFF;
@@ -27,7 +27,7 @@ static int build_control_packet(uint8_t ctrl, const char *filename, uint32_t fil
     out[idx++] = (filesize >> 8) & 0xFF;
     out[idx++] = (filesize) & 0xFF;
 
-    // T_FILE_NAME
+    // File name
     size_t name_len = filename ? strlen(filename) : 0;
     out[idx++] = T_FILE_NAME;
     out[idx++] = (uint8_t)name_len;
@@ -145,203 +145,8 @@ static uint32_t get_file_size(FILE *f)
         sz = 0;
     (void)fseek(f, cur, SEEK_SET);
     if (sz > 0xFFFFFFFFL)
-        sz = 0xFFFFFFFFL; // cap to 4GB for this TLV
+        sz = 0xFFFFFFFFL;
     return (uint32_t)sz;
-}
-
-static int run_transmitter(const char *filename)
-{
-    if (!filename || !*filename)
-    {
-        fprintf(stderr, "Transmitter: missing filename.\n");
-        return -1;
-    }
-
-    FILE *f = fopen(filename, "rb");
-    if (!f)
-    {
-        perror("fopen");
-        return -1;
-    }
-
-    uint32_t fsize = get_file_size(f);
-
-    // START control packet
-    unsigned char pkt[MAX_PAYLOAD_SIZE];
-    int pkt_len = 0;
-    if (build_control_packet(C_START, filename, fsize, pkt, &pkt_len) != 0)
-    {
-        fprintf(stderr, "Failed to build START packet.\n");
-        fclose(f);
-        return -1;
-    }
-    if (llwrite(pkt, pkt_len) < 0)
-    {
-        fprintf(stderr, "llwrite START failed.\n");
-        fclose(f);
-        return -1;
-    }
-
-    // DATA packets
-    const int chunk = MAX_PAYLOAD_SIZE - 3;
-    unsigned char buf[4096];
-    uint32_t sent = 0;
-    while (!feof(f))
-    {
-        size_t to_read = (chunk < (int)sizeof(buf)) ? (size_t)chunk : sizeof(buf);
-        size_t n = fread(buf, 1, to_read, f);
-        if (n == 0)
-        {
-            if (ferror(f))
-            {
-                perror("fread");
-                fclose(f);
-                return -1;
-            }
-            break;
-        }
-
-        int data_pkt_len = 0;
-        if (build_data_packet(buf, (int)n, pkt, &data_pkt_len) != 0)
-        {
-            fprintf(stderr, "Failed to build DATA packet.\n");
-            fclose(f);
-            return -1;
-        }
-        if (llwrite(pkt, data_pkt_len) < 0)
-        {
-            fprintf(stderr, "llwrite DATA failed.\n");
-            fclose(f);
-            return -1;
-        }
-        sent += (uint32_t)n;
-    }
-
-    // END control packet
-    if (build_control_packet(C_END, filename, fsize, pkt, &pkt_len) != 0)
-    {
-        fprintf(stderr, "Failed to build END packet.\n");
-        fclose(f);
-        return -1;
-    }
-    if (llwrite(pkt, pkt_len) < 0)
-    {
-        fprintf(stderr, "llwrite END failed.\n");
-        fclose(f);
-        return -1;
-    }
-
-    fclose(f);
-    if (sent != fsize)
-    {
-        fprintf(stderr, "Warning: sent %u bytes but advertised %u.\n", sent, fsize);
-    }
-    return 0;
-}
-
-static int run_receiver(const char *output_name_hint)
-{
-    unsigned char pkt[MAX_PAYLOAD_SIZE];
-    int n = llread(pkt);
-    if (n < 0)
-    {
-        fprintf(stderr, "llread START failed.\n");
-        return -1;
-    }
-
-    uint8_t ctrl = 0;
-    char start_name[256] = {0};
-    uint32_t start_size = 0;
-    if (parse_control_packet(pkt, n, &ctrl, start_name, sizeof(start_name), &start_size) != 0 || ctrl != C_START)
-    {
-        fprintf(stderr, "Expected START control packet.\n");
-        return -1;
-    }
-
-    const char *out_name = NULL;
-    if (output_name_hint && *output_name_hint)
-        out_name = output_name_hint;
-    else if (*start_name)
-        out_name = start_name;
-    else
-        out_name = "received_file.bin";
-
-    FILE *f = fopen(out_name, "wb");
-    if (!f)
-    {
-        perror("fopen");
-        return -1;
-    }
-
-    uint32_t written = 0;
-    for (;;)
-    {
-        n = llread(pkt);
-        if (n < 0)
-        {
-            fprintf(stderr, "llread failed during transfer.\n");
-            fclose(f);
-            return -1;
-        }
-        if (n == 0)
-            continue;
-
-        if (pkt[0] == C_DATA)
-        {
-            const unsigned char *data = NULL;
-            int data_len = 0;
-            if (parse_data_packet(pkt, n, &data, &data_len) != 0)
-            {
-                fprintf(stderr, "Invalid DATA packet, ignoring.\n");
-                continue;
-            }
-            size_t w = fwrite(data, 1, (size_t)data_len, f);
-            if ((int)w != data_len)
-            {
-                perror("fwrite");
-                fclose(f);
-                return -1;
-            }
-            written += (uint32_t)w;
-        }
-        else if (pkt[0] == C_END)
-        {
-            uint8_t end_ctrl = 0;
-            char end_name[256] = {0};
-            uint32_t end_size = 0;
-            if (parse_control_packet(pkt, n, &end_ctrl, end_name, sizeof(end_name), &end_size) != 0 || end_ctrl != C_END)
-            {
-                fprintf(stderr, "Invalid END control packet.\n");
-                fclose(f);
-                return -1;
-            }
-            // Validate END mirrors START
-            if (end_size != start_size ||
-                ((*start_name || *end_name) && strcmp(start_name, end_name) != 0))
-            {
-                fprintf(stderr, "END metadata mismatch.\n");
-                fclose(f);
-                return -1;
-            }
-            break;
-        }
-        else
-        {
-            // Ignore unknown packets
-            continue;
-        }
-    }
-
-    fclose(f);
-    if (written != start_size)
-    {
-        fprintf(stderr, "Warning: wrote %u bytes but advertised %u.\n", written, start_size);
-    }
-    else
-    {
-        printf("Received file '%s' (%u bytes).\n", out_name, written);
-    }
-    return 0;
 }
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
@@ -362,13 +167,207 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     int rc = 0;
+
     if (connectionParameters.role == LlTx)
     {
-        rc = run_transmitter(filename);
+        // Transmitter
+        if (!filename || !*filename)
+        {
+            fprintf(stderr, "Transmitter: missing filename.\n");
+            rc = -1;
+        }
+        else
+        {
+            FILE *f = fopen(filename, "rb");
+            if (!f)
+            {
+                perror("fopen");
+                rc = -1;
+            }
+            else
+            {
+                uint32_t fsize = get_file_size(f);
+
+                // START control packet
+                unsigned char pkt[MAX_PAYLOAD_SIZE];
+                int pkt_len = 0;
+                if (build_control_packet(C_START, filename, fsize, pkt, &pkt_len) != 0)
+                {
+                    fprintf(stderr, "Failed to build START packet.\n");
+                    rc = -1;
+                }
+                else if (llwrite(pkt, pkt_len) < 0)
+                {
+                    fprintf(stderr, "llwrite START failed.\n");
+                    rc = -1;
+                }
+                else
+                {
+                    // DATA packets
+                    const int chunk = MAX_PAYLOAD_SIZE - 3;
+                    unsigned char buf[4096];
+                    uint32_t sent = 0;
+
+                    while (!feof(f))
+                    {
+                        size_t to_read = (chunk < (int)sizeof(buf)) ? (size_t)chunk : sizeof(buf);
+                        size_t n = fread(buf, 1, to_read, f);
+                        if (n == 0)
+                        {
+                            if (ferror(f))
+                            {
+                                perror("fread");
+                                rc = -1;
+                            }
+                            break;
+                        }
+
+                        int data_pkt_len = 0;
+                        if (build_data_packet(buf, (int)n, pkt, &data_pkt_len) != 0)
+                        {
+                            fprintf(stderr, "Failed to build DATA packet.\n");
+                            rc = -1;
+                            break;
+                        }
+                        if (llwrite(pkt, data_pkt_len) < 0)
+                        {
+                            fprintf(stderr, "llwrite DATA failed.\n");
+                            rc = -1;
+                            break;
+                        }
+                        sent += (uint32_t)n;
+                    }
+
+                    if (rc == 0)
+                    {
+                        // END control packet
+                        if (build_control_packet(C_END, filename, fsize, pkt, &pkt_len) != 0)
+                        {
+                            fprintf(stderr, "Failed to build END packet.\n");
+                            rc = -1;
+                        }
+                        else if (llwrite(pkt, pkt_len) < 0)
+                        {
+                            fprintf(stderr, "llwrite END failed.\n");
+                            rc = -1;
+                        }
+                    }
+
+                    if (sent != fsize)
+                    {
+                        fprintf(stderr, "Warning: sent %u bytes but advertised %u.\n", sent, fsize);
+                    }
+                }
+
+                fclose(f);
+            }
+        }
     }
     else
     {
-        rc = run_receiver(filename); // filename is an optional output name hint for the receiver
+        // Receiver
+        unsigned char pkt[MAX_PAYLOAD_SIZE];
+        int n = llread(pkt);
+        if (n < 0)
+        {
+            fprintf(stderr, "llread START failed.\n");
+            rc = -1;
+        }
+        else
+        {
+            uint8_t ctrl = 0;
+            char start_name[256] = {0};
+            uint32_t start_size = 0;
+            if (parse_control_packet(pkt, n, &ctrl, start_name, sizeof(start_name), &start_size) != 0 || ctrl != C_START)
+            {
+                fprintf(stderr, "Expected START control packet.\n");
+                rc = -1;
+            }
+            else
+            {
+                const char *out_name = NULL;
+                if (filename && *filename)
+                    out_name = filename;
+                else if (*start_name)
+                    out_name = start_name;
+                else
+                    out_name = "received_file.bin";
+
+                FILE *f = fopen(out_name, "wb");
+                if (!f)
+                {
+                    perror("fopen");
+                    rc = -1;
+                }
+                else
+                {
+                    uint32_t written = 0;
+                    for (;;)
+                    {
+                        n = llread(pkt);
+                        if (n < 0)
+                        {
+                            fprintf(stderr, "llread failed during transfer.\n");
+                            rc = -1;
+                            break;
+                        }
+                        if (n == 0)
+                            continue;
+
+                        if (pkt[0] == C_DATA)
+                        {
+                            const unsigned char *data = NULL;
+                            int data_len = 0;
+                            if (parse_data_packet(pkt, n, &data, &data_len) != 0)
+                            {
+                                fprintf(stderr, "Invalid DATA packet, ignoring.\n");
+                                continue;
+                            }
+                            size_t w = fwrite(data, 1, (size_t)data_len, f);
+                            if ((int)w != data_len)
+                            {
+                                perror("fwrite");
+                                rc = -1;
+                                break;
+                            }
+                            written += (uint32_t)w;
+                        }
+                        else if (pkt[0] == C_END)
+                        {
+                            uint8_t end_ctrl = 0;
+                            char end_name[256] = {0};
+                            uint32_t end_size = 0;
+                            if (parse_control_packet(pkt, n, &end_ctrl, end_name, sizeof(end_name), &end_size) != 0 || end_ctrl != C_END)
+                            {
+                                fprintf(stderr, "Invalid END control packet.\n");
+                                rc = -1;
+                            }
+                            else if (end_size != start_size ||
+                                     ((*start_name || *end_name) && strcmp(start_name, end_name) != 0))
+                            {
+                                fprintf(stderr, "END metadata mismatch.\n");
+                                rc = -1;
+                            }
+                            break;
+                        }
+                        else
+                        {
+                            // Ignore unknown packets
+                            continue;
+                        }
+                    }
+
+                    fclose(f);
+                    if (rc == 0)
+                    {
+                        if (written != start_size)
+                            fprintf(stderr, "Warning: wrote %u bytes but advertised %u.\n", written, start_size);
+                        else
+                            printf("Received file '%s' (%u bytes).\n", out_name, written);
+                    }
+                }
+            }
+        }
     }
 
     if (llclose(connectionParameters) == -1)
@@ -378,11 +377,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     if (rc == 0)
-    {
         printf("Application transfer completed successfully.\n");
-    }
     else
-    {
         printf("Application transfer failed.\n");
-    }
 }

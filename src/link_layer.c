@@ -476,7 +476,7 @@ int llread(unsigned char *packet)
         if (destuffedLen < 4)
         {
             printf("Frame too short after destuffing (%d bytes).\n", destuffedLen);
-            continue; // keep listening
+            continue;
         }
 
         unsigned char A_field = destuffedFrame[0];
@@ -486,13 +486,11 @@ int llread(unsigned char *packet)
         if (A_field != A_TR_R)
         {
             printf("Invalid A field: 0x%02X\n", A_field);
-            continue; // silently discard and keep listening
+            continue; // silently discard
         }
 
-        // Must be an I frame
         if (C_field != C_I(0) && C_field != C_I(1))
         {
-            // Not our data frame; ignore
             continue;
         }
 
@@ -500,7 +498,7 @@ int llread(unsigned char *packet)
         if (BCC1 != (A_field ^ C_field))
         {
             printf("BCC1 validation failed, frame discarded.\n");
-            continue; // silently discard
+            continue;
         }
 
         int dataLen = destuffedLen - 4;
@@ -543,7 +541,7 @@ int llread(unsigned char *packet)
             unsigned char RR[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
             writeBytesSerialPort(RR, 5);
 
-            continue; // do not return to app on duplicate
+            continue; // duplicate
         }
     }
 }
