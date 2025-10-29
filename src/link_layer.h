@@ -71,7 +71,7 @@ int llread(unsigned char *packet);
 
 // Close previously opened connection and print transmission statistics in the console.
 // Return 0 on success or -1 on error.
-int llclose();
+int llclose(LinkLayer connectionParameters);
 
 void alarmHandler(int signal);
 

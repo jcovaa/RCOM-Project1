@@ -1,8 +1,6 @@
 // Application layer protocol implementation
 
 #include "application_layer.h"
-#include <stdint.h>
-#include <stdlib.h>
 
 #define C_START 1
 #define C_DATA 2
@@ -10,144 +8,6 @@
 
 #define T_FILE_SIZE 0
 #define T_FILE_NAME 1
-
-static int build_control_packet(uint8_t ctrl, const char *filename, uint32_t filesize,
-                                unsigned char *out, int *out_len)
-{
-    if (!out || !out_len)
-        return -1;
-
-    int idx = 0;
-    out[idx++] = ctrl;
-
-    out[idx++] = T_FILE_SIZE;
-    out[idx++] = 4;
-    out[idx++] = (filesize >> 24) & 0xFF;
-    out[idx++] = (filesize >> 16) & 0xFF;
-    out[idx++] = (filesize >> 8) & 0xFF;
-    out[idx++] = (filesize) & 0xFF;
-
-    // File name
-    size_t name_len = filename ? strlen(filename) : 0;
-    out[idx++] = T_FILE_NAME;
-    out[idx++] = (uint8_t)name_len;
-    if (name_len > 0)
-    {
-        memcpy(&out[idx], filename, name_len);
-        idx += (int)name_len;
-    }
-
-    *out_len = idx;
-    if (*out_len > MAX_PAYLOAD_SIZE)
-        return -1;
-    return 0;
-}
-
-static int parse_control_packet(const unsigned char *pkt, int pkt_len,
-                                uint8_t *ctrl, char *filename_buf, size_t filename_buf_sz,
-                                uint32_t *filesize)
-{
-    if (!pkt || pkt_len < 1)
-        return -1;
-    int idx = 0;
-    *ctrl = pkt[idx++];
-
-    uint32_t size = 0;
-    char name_local[256] = {0};
-    int have_size = 0, have_name = 0;
-
-    while (idx + 2 <= pkt_len)
-    {
-        uint8_t T = pkt[idx++];
-        uint8_t L = pkt[idx++];
-        if (idx + L > pkt_len)
-            return -1;
-
-        if (T == T_FILE_SIZE && L == 4)
-        {
-            size = ((uint32_t)pkt[idx] << 24) |
-                   ((uint32_t)pkt[idx + 1] << 16) |
-                   ((uint32_t)pkt[idx + 2] << 8) |
-                   (uint32_t)pkt[idx + 3];
-            have_size = 1;
-        }
-        else if (T == T_FILE_NAME)
-        {
-            size_t cpy = (L < sizeof(name_local) - 1) ? L : (sizeof(name_local) - 1);
-            memcpy(name_local, &pkt[idx], cpy);
-            name_local[cpy] = '\0';
-            have_name = 1;
-        }
-        idx += L;
-    }
-
-    if (filesize)
-        *filesize = size;
-    if (filename_buf && filename_buf_sz > 0)
-    {
-        if (have_name)
-        {
-            strncpy(filename_buf, name_local, filename_buf_sz - 1);
-            filename_buf[filename_buf_sz - 1] = '\0';
-        }
-        else
-        {
-            filename_buf[0] = '\0';
-        }
-    }
-    return (have_size ? 0 : -1);
-}
-
-static int build_data_packet(const unsigned char *data, int len,
-                             unsigned char *out, int *out_len)
-{
-    if (!data || !out || !out_len || len < 0)
-        return -1;
-    if (len > MAX_PAYLOAD_SIZE - 3)
-        return -1; // C + L2 + L1 overhead
-
-    out[0] = C_DATA;
-    out[1] = (uint8_t)((len >> 8) & 0xFF);
-    out[2] = (uint8_t)(len & 0xFF);
-    memcpy(out + 3, data, len);
-    *out_len = 3 + len;
-    return 0;
-}
-
-static int parse_data_packet(const unsigned char *pkt, int pkt_len,
-                             const unsigned char **data_out, int *data_len)
-{
-    if (!pkt || pkt_len < 3)
-        return -1;
-    if (pkt[0] != C_DATA)
-        return -1;
-    int K = ((int)pkt[1] << 8) | pkt[2];
-    if (K != pkt_len - 3)
-        return -1;
-    if (data_out)
-        *data_out = pkt + 3;
-    if (data_len)
-        *data_len = K;
-    return 0;
-}
-
-static uint32_t get_file_size(FILE *f)
-{
-    if (!f)
-        return 0;
-    long cur = ftell(f);
-    if (cur < 0)
-        cur = 0;
-    if (fseek(f, 0, SEEK_END) != 0)
-        return 0;
-    long sz = ftell(f);
-    if (sz < 0)
-        sz = 0;
-    (void)fseek(f, cur, SEEK_SET);
-    if (sz > 0xFFFFFFFFL)
-        sz = 0xFFFFFFFFL;
-    return (uint32_t)sz;
-}
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -380,4 +240,142 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         printf("Application transfer completed successfully.\n");
     else
         printf("Application transfer failed.\n");
+}
+
+int build_control_packet(uint8_t ctrl, const char *filename, uint32_t filesize,
+                         unsigned char *out, int *out_len)
+{
+    if (!out || !out_len)
+        return -1;
+
+    int idx = 0;
+    out[idx++] = ctrl;
+
+    out[idx++] = T_FILE_SIZE;
+    out[idx++] = 4;
+    out[idx++] = (filesize >> 24) & 0xFF;
+    out[idx++] = (filesize >> 16) & 0xFF;
+    out[idx++] = (filesize >> 8) & 0xFF;
+    out[idx++] = (filesize) & 0xFF;
+
+    // File name
+    size_t name_len = filename ? strlen(filename) : 0;
+    out[idx++] = T_FILE_NAME;
+    out[idx++] = (uint8_t)name_len;
+    if (name_len > 0)
+    {
+        memcpy(&out[idx], filename, name_len);
+        idx += (int)name_len;
+    }
+
+    *out_len = idx;
+    if (*out_len > MAX_PAYLOAD_SIZE)
+        return -1;
+    return 0;
+}
+
+int parse_control_packet(const unsigned char *pkt, int pkt_len,
+                         uint8_t *ctrl, char *filename_buf, size_t filename_buf_sz,
+                         uint32_t *filesize)
+{
+    if (!pkt || pkt_len < 1)
+        return -1;
+    int idx = 0;
+    *ctrl = pkt[idx++];
+
+    uint32_t size = 0;
+    char name_local[256] = {0};
+    int have_size = 0, have_name = 0;
+
+    while (idx + 2 <= pkt_len)
+    {
+        uint8_t T = pkt[idx++];
+        uint8_t L = pkt[idx++];
+        if (idx + L > pkt_len)
+            return -1;
+
+        if (T == T_FILE_SIZE && L == 4)
+        {
+            size = ((uint32_t)pkt[idx] << 24) |
+                   ((uint32_t)pkt[idx + 1] << 16) |
+                   ((uint32_t)pkt[idx + 2] << 8) |
+                   (uint32_t)pkt[idx + 3];
+            have_size = 1;
+        }
+        else if (T == T_FILE_NAME)
+        {
+            size_t cpy = (L < sizeof(name_local) - 1) ? L : (sizeof(name_local) - 1);
+            memcpy(name_local, &pkt[idx], cpy);
+            name_local[cpy] = '\0';
+            have_name = 1;
+        }
+        idx += L;
+    }
+
+    if (filesize)
+        *filesize = size;
+    if (filename_buf && filename_buf_sz > 0)
+    {
+        if (have_name)
+        {
+            strncpy(filename_buf, name_local, filename_buf_sz - 1);
+            filename_buf[filename_buf_sz - 1] = '\0';
+        }
+        else
+        {
+            filename_buf[0] = '\0';
+        }
+    }
+    return (have_size ? 0 : -1);
+}
+
+int build_data_packet(const unsigned char *data, int len,
+                      unsigned char *out, int *out_len)
+{
+    if (!data || !out || !out_len || len < 0)
+        return -1;
+    if (len > MAX_PAYLOAD_SIZE - 3)
+        return -1; // C + L2 + L1 overhead
+
+    out[0] = C_DATA;
+    out[1] = (uint8_t)((len >> 8) & 0xFF);
+    out[2] = (uint8_t)(len & 0xFF);
+    memcpy(out + 3, data, len);
+    *out_len = 3 + len;
+    return 0;
+}
+
+int parse_data_packet(const unsigned char *pkt, int pkt_len,
+                      const unsigned char **data_out, int *data_len)
+{
+    if (!pkt || pkt_len < 3)
+        return -1;
+    if (pkt[0] != C_DATA)
+        return -1;
+    int K = ((int)pkt[1] << 8) | pkt[2];
+    if (K != pkt_len - 3)
+        return -1;
+    if (data_out)
+        *data_out = pkt + 3;
+    if (data_len)
+        *data_len = K;
+    return 0;
+}
+
+uint32_t get_file_size(FILE *f)
+{
+    if (!f)
+        return 0;
+    long cur = ftell(f);
+    if (cur < 0)
+        cur = 0;
+    if (fseek(f, 0, SEEK_END) != 0)
+        return 0;
+    long sz = ftell(f);
+    if (sz < 0)
+        sz = 0;
+    (void)fseek(f, cur, SEEK_SET);
+    if (sz > 0xFFFFFFFFL)
+        sz = 0xFFFFFFFFL;
+    return (uint32_t)sz;
 }
