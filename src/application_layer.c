@@ -14,7 +14,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 {
     LinkLayer connectionParameters;
     memset(&connectionParameters, 0, sizeof(connectionParameters));
-    strncpy(connectionParameters.serialPort, serialPort, sizeof(connectionParameters.serialPort) - 1);
+
+    strcpy(connectionParameters.serialPort, serialPort);
     connectionParameters.role = (role && strcmp(role, "tx") == 0) ? LlTx : LlRx;
     connectionParameters.baudRate = baudRate;
     connectionParameters.nRetransmissions = nTries;
@@ -22,19 +23,19 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     if (llopen(connectionParameters) == -1)
     {
-        fprintf(stderr, "llopen failed.\n");
+        printf("llopen failed.\n");
         return;
     }
 
-    int rc = 0;
+    int result = 0;
 
     if (connectionParameters.role == LlTx)
     {
         // Transmitter
-        if (!filename || !*filename)
+        if (!filename)
         {
-            fprintf(stderr, "Transmitter: missing filename.\n");
-            rc = -1;
+            printf("Transmitter: missing filename.\n");
+            result = -1;
         }
         else
         {
@@ -42,7 +43,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             if (!f)
             {
                 perror("fopen");
-                rc = -1;
+                result = -1;
             }
             else
             {
@@ -53,13 +54,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 int pkt_len = 0;
                 if (build_control_packet(C_START, filename, fsize, pkt, &pkt_len) != 0)
                 {
-                    fprintf(stderr, "Failed to build START packet.\n");
-                    rc = -1;
+                    printf("Failed to build START packet.\n");
+                    result = -1;
                 }
                 else if (llwrite(pkt, pkt_len) < 0)
                 {
-                    fprintf(stderr, "llwrite START failed.\n");
-                    rc = -1;
+                    printf("llwrite START failed.\n");
+                    result = -1;
                 }
                 else
                 {
@@ -77,7 +78,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                             if (ferror(f))
                             {
                                 perror("fread");
-                                rc = -1;
+                                result = -1;
                             }
                             break;
                         }
@@ -85,37 +86,37 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                         int data_pkt_len = 0;
                         if (build_data_packet(buf, (int)n, pkt, &data_pkt_len) != 0)
                         {
-                            fprintf(stderr, "Failed to build DATA packet.\n");
-                            rc = -1;
+                            printf("Failed to build DATA packet.\n");
+                            result = -1;
                             break;
                         }
                         if (llwrite(pkt, data_pkt_len) < 0)
                         {
-                            fprintf(stderr, "llwrite DATA failed.\n");
-                            rc = -1;
+                            printf("llwrite DATA failed.\n");
+                            result = -1;
                             break;
                         }
                         sent += (uint32_t)n;
                     }
 
-                    if (rc == 0)
+                    if (result == 0)
                     {
                         // END control packet
                         if (build_control_packet(C_END, filename, fsize, pkt, &pkt_len) != 0)
                         {
-                            fprintf(stderr, "Failed to build END packet.\n");
-                            rc = -1;
+                            printf("Failed to build END packet.\n");
+                            result = -1;
                         }
                         else if (llwrite(pkt, pkt_len) < 0)
                         {
-                            fprintf(stderr, "llwrite END failed.\n");
-                            rc = -1;
+                            printf("llwrite END failed.\n");
+                            result = -1;
                         }
                     }
 
                     if (sent != fsize)
                     {
-                        fprintf(stderr, "Warning: sent %u bytes but advertised %u.\n", sent, fsize);
+                        printf("Warning: sent %u bytes but advertised %u.\n", sent, fsize);
                     }
                 }
 
@@ -130,8 +131,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         int n = llread(pkt);
         if (n < 0)
         {
-            fprintf(stderr, "llread START failed.\n");
-            rc = -1;
+            printf("llread START failed.\n");
+            result = -1;
         }
         else
         {
@@ -140,8 +141,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             uint32_t start_size = 0;
             if (parse_control_packet(pkt, n, &ctrl, start_name, sizeof(start_name), &start_size) != 0 || ctrl != C_START)
             {
-                fprintf(stderr, "Expected START control packet.\n");
-                rc = -1;
+                printf("Expected START control packet.\n");
+                result = -1;
             }
             else
             {
@@ -157,7 +158,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 if (!f)
                 {
                     perror("fopen");
-                    rc = -1;
+                    result = -1;
                 }
                 else
                 {
@@ -167,8 +168,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                         n = llread(pkt);
                         if (n < 0)
                         {
-                            fprintf(stderr, "llread failed during transfer.\n");
-                            rc = -1;
+                            printf("llread failed during transfer.\n");
+                            result = -1;
                             break;
                         }
                         if (n == 0)
@@ -180,14 +181,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                             int data_len = 0;
                             if (parse_data_packet(pkt, n, &data, &data_len) != 0)
                             {
-                                fprintf(stderr, "Invalid DATA packet, ignoring.\n");
+                                printf("Invalid DATA packet, ignoring.\n");
                                 continue;
                             }
                             size_t w = fwrite(data, 1, (size_t)data_len, f);
                             if ((int)w != data_len)
                             {
                                 perror("fwrite");
-                                rc = -1;
+                                result = -1;
                                 break;
                             }
                             written += (uint32_t)w;
@@ -199,14 +200,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                             uint32_t end_size = 0;
                             if (parse_control_packet(pkt, n, &end_ctrl, end_name, sizeof(end_name), &end_size) != 0 || end_ctrl != C_END)
                             {
-                                fprintf(stderr, "Invalid END control packet.\n");
-                                rc = -1;
+                                printf("Invalid END control packet.\n");
+                                result = -1;
                             }
                             else if (end_size != start_size ||
                                      ((*start_name || *end_name) && strcmp(start_name, end_name) != 0))
                             {
-                                fprintf(stderr, "END metadata mismatch.\n");
-                                rc = -1;
+                                printf("END mismatch.\n");
+                                result = -1;
                             }
                             break;
                         }
@@ -218,10 +219,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     }
 
                     fclose(f);
-                    if (rc == 0)
+                    if (result == 0)
                     {
                         if (written != start_size)
-                            fprintf(stderr, "Warning: wrote %u bytes but advertised %u.\n", written, start_size);
+                            printf("Warning: wrote %u bytes but advertised %u.\n", written, start_size);
                         else
                             printf("Received file '%s' (%u bytes).\n", out_name, written);
                     }
@@ -232,11 +233,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     if (llclose(connectionParameters) == -1)
     {
-        fprintf(stderr, "llclose failed.\n");
+        printf("llclose failed.\n");
         return;
     }
 
-    if (rc == 0)
+    if (result == 0)
         printf("Application transfer completed successfully.\n");
     else
         printf("Application transfer failed.\n");
