@@ -320,8 +320,6 @@ int build_data_packet(const unsigned char *data, int len,
 {
     if (!data || !out || !out_len || len < 0)
         return -1;
-    if (len > MAX_PAYLOAD_SIZE - 3)
-        return -1; // C + L2 + L1 overhead
 
     out[0] = C_DATA;
     out[1] = (uint8_t)((len >> 8) & 0xFF);
@@ -334,10 +332,9 @@ int build_data_packet(const unsigned char *data, int len,
 int parse_data_packet(const unsigned char *pkt, int pkt_len,
                       const unsigned char **data_out, int *data_len)
 {
-    if (!pkt || pkt_len < 3)
-        return -1;
     if (pkt[0] != C_DATA)
         return -1;
+
     int K = ((int)pkt[1] << 8) | pkt[2];
     if (K != pkt_len - 3)
         return -1;
@@ -352,6 +349,7 @@ uint32_t get_file_size(FILE *f)
 {
     if (!f)
         return 0;
+
     long cur = ftell(f);
     if (cur < 0)
         cur = 0;
