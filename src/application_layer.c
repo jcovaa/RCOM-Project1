@@ -113,13 +113,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                             result = -1;
                         }
                     }
-
-                    if (sent != fsize)
-                    {
-                        printf("Warning: sent %u bytes but advertised %u.\n", sent, fsize);
-                    }
                 }
-
                 fclose(f);
             }
         }
@@ -203,12 +197,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                                 printf("Invalid END control packet.\n");
                                 result = -1;
                             }
-                            else if (end_size != start_size ||
-                                     ((*start_name || *end_name) && strcmp(start_name, end_name) != 0))
-                            {
-                                printf("END mismatch.\n");
-                                result = -1;
-                            }
                             break;
                         }
                         else
@@ -221,10 +209,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     fclose(f);
                     if (result == 0)
                     {
-                        if (written != start_size)
-                            printf("Warning: wrote %u bytes but advertised %u.\n", written, start_size);
-                        else
-                            printf("Received file '%s' (%u bytes).\n", out_name, written);
+                        printf("Received file '%s' (%u bytes).\n", out_name, written);
                     }
                 }
             }
@@ -319,7 +304,7 @@ int parse_control_packet(const unsigned char *pkt, int pkt_len,
     {
         if (have_name)
         {
-            strncpy(filename_buf, name_local, filename_buf_sz - 1);
+            strcpy(filename_buf, name_local);
             filename_buf[filename_buf_sz - 1] = '\0';
         }
         else
