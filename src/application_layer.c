@@ -356,10 +356,8 @@ uint32_t get_file_size(FILE *f)
     if (fseek(f, 0, SEEK_END) != 0)
         return 0;
     long sz = ftell(f);
-    if (sz < 0)
-        sz = 0;
+
     (void)fseek(f, cur, SEEK_SET);
-    if (sz > 0xFFFFFFFFL)
-        sz = 0xFFFFFFFFL;
+
     return (uint32_t)sz;
 }
