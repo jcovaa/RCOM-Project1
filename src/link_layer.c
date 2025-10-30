@@ -486,14 +486,11 @@ int llread(unsigned char *packet)
                 printf("DISC received while waiting for I-frames. Returning to upper layer.\n");
                 return -1;
             }
-
-            printf("Frame too short after destuffing (%d bytes).\n", destuffedLen);
             continue;
         }
 
         if (destuffedLen < 4)
         {
-            printf("Frame too short after destuffing (%d bytes).\n", destuffedLen);
             continue;
         }
 
@@ -503,18 +500,19 @@ int llread(unsigned char *packet)
 
         if (A_field != A_TR_R)
         {
-            printf("Invalid A field: 0x%02X\n", A_field);
+            printf("Invalid A field.\n");
             continue;
         }
 
         if (C_field != C_I(0) && C_field != C_I(1))
         {
+            printf("Invalid C field.\n");
             continue;
         }
 
         if (BCC1 != (A_field ^ C_field))
         {
-            printf("BCC1 validation failed, frame discarded.\n");
+            printf("BCC1 validation failed.\n");
             continue;
         }
 
@@ -530,8 +528,7 @@ int llread(unsigned char *packet)
         int receivedNs = (C_field >> 7) & 0x01;
         if (receivedBCC2 != calculatedBCC2)
         {
-            printf("BCC2 error detected (expected 0x%02X, got 0x%02X), sending REJ(%d).\n",
-                   calculatedBCC2, receivedBCC2, expectedNs);
+            printf("BCC2 error detected, sending REJ(%d).\n", expectedNs);
             unsigned char REJ[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
             writeBytesSerialPort(REJ, 5);
             continue;

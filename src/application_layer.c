@@ -65,13 +65,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 else
                 {
                     // DATA packets
-                    const int chunk = MAX_PAYLOAD_SIZE - 3;
+                    const int data_packet = MAX_PAYLOAD_SIZE;
                     unsigned char buf[4096];
                     uint32_t sent = 0;
 
                     while (!feof(f))
                     {
-                        size_t to_read = (chunk < (int)sizeof(buf)) ? (size_t)chunk : sizeof(buf);
+                        size_t to_read = (data_packet < (int)sizeof(buf)) ? (size_t)data_packet : sizeof(buf);
                         size_t n = fread(buf, 1, to_read, f);
                         if (n == 0)
                         {
