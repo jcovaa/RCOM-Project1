@@ -466,7 +466,7 @@ int llread(unsigned char *packet)
 
         if (A_field == A_TR_R && C_field == C_DISC && BCC1 == (A_field ^ C_field))
         {
-            printf("DISC received. Sending DISC reply and signalling llclose.\n");
+            printf("DISC received while waiting for I-frames. Returning to upper layer.\n");
             unsigned char DISC_reply[5] = {FLAG, A_R_TR, C_DISC, A_R_TR ^ C_DISC, FLAG};
             writeBytesSerialPort(DISC_reply, 5);
             DISC_received = TRUE;
@@ -483,29 +483,29 @@ int llread(unsigned char *packet)
         return 0;
     }
 
-    unsigned char A = frame[1], C = frame[2], BCC1 = frame[3];
+    unsigned char A_field = frame[1], C_field = frame[2], BCC1 = frame[3];
 
-    if (A != A_TR_R)
+    if (A_field != A_TR_R)
     {
-        printf("Invalid A field (0x%02X). Ignoring frame.\n", A);
+        printf("Invalid A field (0x%02X). Ignoring frame.\n", A_field);
         return 0;
     }
 
-    if ((A ^ C) != BCC1)
+    if ((A_field ^ C_field) != BCC1)
     {
-        printf("BCC1 error (A^C=%02X, BCC1=%02X). Sending REJ.\n", A ^ C, BCC1);
+        printf("BCC1 error (A^C=%02X, BCC1=%02X). Sending REJ.\n", A_field ^ C_field, BCC1);
         unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
         writeBytesSerialPort(rej, 5);
         return -1;
     }
 
-    if (C != C_I(0) && C != C_I(1))
+    if (C_field != C_I(0) && C_field != C_I(1))
     {
-        printf("Unexpected control field (0x%02X) ignored.\n", C);
+        printf("Invalid Control field (0x%02X).\n", C_field);
         return 0;
     }
 
-    int receivedNs = (C >> 7) & 0x01;
+    int receivedNs = (C_field >> 7) & 0x01;
 
     int dataLen = destuffedLen - 4;
     unsigned char calculatedBCC2 = 0x00;
