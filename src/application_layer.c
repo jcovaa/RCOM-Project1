@@ -123,9 +123,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         // Receiver
         unsigned char pkt[MAX_PAYLOAD_SIZE];
         int n = llread(pkt);
-        if (n < 0)
+
+        if (n == -1)
         {
             printf("llread START failed.\n");
+            result = -1;
+        }
+        else if (n == -2)
+        {
+            printf("llread: DISC received during START, aborting.\n");
             result = -1;
         }
         else

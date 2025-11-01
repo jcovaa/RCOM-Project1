@@ -242,18 +242,19 @@ int llwrite(const unsigned char *buf, int bufSize)
         BCC2 ^= buf[i];
     }
 
-    // Copy data payload
     memcpy(&tempFrame[idx], buf, bufSize);
     idx += bufSize;
     tempFrame[idx++] = BCC2;
 
     unsigned char stuffedFrame[2 * (bufSize + 6)];
-    stuffedFrame[0] = FLAG;
+    int headerLen = 4;  // FLAG, A, C, BCC1
 
-    int stuffedLen = byteStuffing(tempFrame + 1, idx - 1, stuffedFrame + 1);
+    memcpy(stuffedFrame, tempFrame, headerLen);
 
-    stuffedFrame[1 + stuffedLen] = FLAG;
-    int frameSize = 1 + stuffedLen + 1;
+    int stuffedLen = byteStuffing(tempFrame + headerLen, bufSize + 1, stuffedFrame + headerLen);
+
+    int frameSize = headerLen + stuffedLen;
+    stuffedFrame[frameSize++] = FLAG;
 
     struct sigaction act = {0};
     act.sa_handler = &alarmHandler;
@@ -268,7 +269,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     {
         if (!alarmEnabled)
         {
-            printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, alarmCount + 1);
+            printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, attempts + 1);
             writeBytesSerialPort(stuffedFrame, frameSize);
             alarm(timeout);
             alarmEnabled = TRUE;
@@ -333,6 +334,11 @@ int byteDestuffing(const unsigned char *input, int input_len, unsigned char *out
     {
         if (input[i] == ESC)
         {
+            if (i + 1 >= input_len)
+            {
+                return -1;
+            }
+
             i++;
             output[j++] = input[i] ^ STUFF_XOR;
         }
@@ -350,11 +356,11 @@ int readResponse(int Ns)
     ControlState state = CSTART_STATE;
     unsigned char C_field = 0;
     int expectedNr = (Ns + 1) % 2;
-    int startAlamrs = alarmCount;
+    int startAlarms = alarmCount;
 
     while (TRUE)
     {
-        if (!alarmEnabled && alarmCount > startAlamrs)
+        if (alarmCount > startAlarms)
             return 0;
 
         int res = readByteSerialPort(&byte);
@@ -370,19 +376,16 @@ int readResponse(int Ns)
         case CFLAG_RCV:
             if (byte == A_R_TR)
                 state = CA_RCV;
-            else if (byte == FLAG)
-                state = CFLAG_RCV;
-            else
+            else if (byte != FLAG)
                 state = CSTART_STATE;
             break;
+
         case CA_RCV:
-            // RR with Nr = (Ns + 1) % 2
             if (byte == C_RR(expectedNr))
             {
                 C_field = byte;
                 state = CC_RCV;
             }
-            // REJ with Nr = Ns
             else if (byte == C_REJ(Ns))
             {
                 C_field = byte;
@@ -422,142 +425,108 @@ int readResponse(int Ns)
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-// ...existing code...
 int llread(unsigned char *packet)
 {
     static int expectedNs = 0;
+    unsigned char frame[2 * (MAX_PAYLOAD_SIZE + 6)];
+    unsigned char byte;
+    int idx = 0;
 
-    for (;;)
+    do {
+        int res = readByteSerialPort(&byte);
+        if (res <= 0) continue;
+
+        if (idx == 0 && byte != FLAG) {
+            continue;
+        }
+
+        frame[idx++] = byte;
+
+        if (idx >= sizeof(frame))
+        {
+            printf("Frame too large.\n");
+            return -1;
+        }
+    } while (!(idx > 1 && byte == FLAG));
+
+    printf("Frame received (%d bytes)\n", idx);
+
+    int destuffedLen = byteDestuffing(frame + 1, idx - 2, frame + 1);
+    if (destuffedLen < 0)
     {
-        unsigned char byte;
-        InformationState state = ISTART_STATE;
-
-        unsigned char stuffedFrame[MAX_PAYLOAD_SIZE * 2 + 10];
-        int stuffedLen = 0;
-
-        while (state != ISTOP_STATE)
-        {
-            int res = readByteSerialPort(&byte);
-            if (res <= 0)
-                continue;
-
-            switch (state)
-            {
-            case ISTART_STATE:
-                if (byte == FLAG)
-                {
-                    state = IFLAG_RCV;
-                    stuffedLen = 0;
-                }
-                break;
-            case IFLAG_RCV:
-                if (byte == FLAG)
-                    state = IFLAG_RCV;
-                else
-                {
-                    stuffedFrame[stuffedLen++] = byte;
-                    state = IDATA_RCV;
-                }
-                break;
-            case IDATA_RCV:
-                if (byte == FLAG)
-                    state = ISTOP_STATE;
-                else
-                    stuffedFrame[stuffedLen++] = byte;
-                break;
-            default:
-                state = ISTART_STATE;
-                break;
-            }
-        }
-
-        unsigned char destuffedFrame[MAX_PAYLOAD_SIZE + 10];
-        int destuffedLen = byteDestuffing(stuffedFrame, stuffedLen, destuffedFrame);
-
-        // Recognize DISC (control frame with only A, C, BCC1)
-        if (destuffedLen == 3)
-        {
-            unsigned char A_field = destuffedFrame[0];
-            unsigned char C_field = destuffedFrame[1];
-            unsigned char BCC1 = destuffedFrame[2];
-
-            if (A_field == A_TR_R && C_field == C_DISC && BCC1 == (A_field ^ C_field))
-            {
-                printf("DISC received while waiting for I-frames. Returning to upper layer.\n");
-                return -1;
-            }
-            continue;
-        }
-
-        if (destuffedLen < 4)
-        {
-            continue;
-        }
-
-        unsigned char A_field = destuffedFrame[0];
-        unsigned char C_field = destuffedFrame[1];
-        unsigned char BCC1 = destuffedFrame[2];
-
-        if (A_field != A_TR_R)
-        {
-            printf("Invalid A field.\n");
-            continue;
-        }
-
-        if (C_field != C_I(0) && C_field != C_I(1))
-        {
-            printf("Invalid C field.\n");
-            continue;
-        }
-
-        if (BCC1 != (A_field ^ C_field))
-        {
-            printf("BCC1 validation failed.\n");
-            continue;
-        }
-
-        int dataLen = destuffedLen - 4;
-        unsigned char receivedBCC2 = destuffedFrame[destuffedLen - 1];
-
-        unsigned char calculatedBCC2 = 0x00;
-        for (int i = 0; i < dataLen; i++)
-        {
-            calculatedBCC2 ^= destuffedFrame[3 + i];
-        }
-
-        int receivedNs = (C_field >> 7) & 0x01;
-        if (receivedBCC2 != calculatedBCC2)
-        {
-            printf("BCC2 error detected, sending REJ(%d).\n", expectedNs);
-            unsigned char REJ[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
-            writeBytesSerialPort(REJ, 5);
-            continue;
-        }
-
-        if (receivedNs == expectedNs)
-        {
-            printf("Valid I frame received with Ns=%d, sending RR(%d).\n", receivedNs, (expectedNs + 1) % 2);
-
-            memcpy(packet, destuffedFrame + 3, dataLen);
-
-            int nextNr = (expectedNs + 1) % 2;
-            unsigned char RR[5] = {FLAG, A_R_TR, C_RR(nextNr), A_R_TR ^ C_RR(nextNr), FLAG};
-            writeBytesSerialPort(RR, 5);
-
-            expectedNs = nextNr;
-
-            return dataLen;
-        }
-        else
-        {
-            printf("Duplicate I frame received with Ns=%d, re-sending RR(%d).\n", receivedNs, expectedNs);
-
-            unsigned char RR[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
-            writeBytesSerialPort(RR, 5);
-
-            continue;
-        }
+        printf("Destuffing error: malformed frame.\n");
+        unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+        writeBytesSerialPort(rej, 5);
+        return -1;
     }
+
+    if (destuffedLen < 4)
+    {
+        unsigned char A_field = frame[1], C_field = frame[2];
+
+        if (A_field == A_TR_R && C_field == C_DISC) {
+            printf("DISC received. Sending DISC reply and signalling llclose.\n");
+            unsigned char DISC_reply[5] = {FLAG, A_R_TR, C_DISC, A_R_TR ^ C_DISC, FLAG};
+            writeBytesSerialPort(DISC_reply, 5);
+            DISC_received = TRUE;
+            return -2;
+        }
+
+        printf("Control frame (destuffedLen=%d) received and ignored.\n", destuffedLen);
+        return 0;
+    }
+
+    unsigned char A = frame[1], C = frame[2], BCC1 = frame[3];
+
+    if ((A ^ C) != BCC1) {
+        printf("BCC1 error. Sending REJ.\n");
+        unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+        writeBytesSerialPort(rej, 5);
+        return -1;
+    }
+
+    if (C != C_I(0) && C != C_I(1)) {
+        printf("Unexpected control field (0x%02X) ignored.\n", C);
+        return 0;
+    }
+
+    int receivedNs = (C >> 7) & 0x01;
+
+    int dataLen = destuffedLen - 4;
+    unsigned char calculatedBCC2 = 0x00;
+    for (int i = 0; i < dataLen; i++)
+    {
+        calculatedBCC2 ^= frame[4 + i];
+    }
+
+    unsigned char receivedBCC2 = frame[4 + dataLen];
+    if (receivedBCC2 != calculatedBCC2)
+    {
+        printf("BCC2 error: expected %02X, got %02X. Sending REJ(%d)\n", calculatedBCC2, receivedBCC2, expectedNs);
+        unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+        writeBytesSerialPort(rej, 5);
+        return -1;
+    }
+
+    if (receivedNs != expectedNs)
+    {
+        printf("Duplicate I-frame Ns=%d (expected %d) — resending RR(%d)\n",
+               receivedNs, expectedNs, expectedNs);
+        unsigned char rr_dup[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
+        writeBytesSerialPort(rr_dup, 5);
+        return 0;
+    }
+
+    memcpy(packet, frame + 4, dataLen);
+    int nextNr = (expectedNs + 1) % 2;
+
+    unsigned char rr[5] = {FLAG, A_R_TR, C_RR(nextNr), A_R_TR ^ C_RR(nextNr), FLAG};
+    writeBytesSerialPort(rr, 5);
+
+    printf("Valid I-frame with Ns=%d (%d bytes). Sent RR(%d)\n", expectedNs, dataLen, nextNr);
+
+    expectedNs = nextNr;
+    return dataLen;
 }
 
 ////////////////////////////////////////////////
@@ -567,7 +536,6 @@ int llclose(LinkLayer connectionParameters)
 {
     alarmEnabled = FALSE;
     alarmCount = 0;
-    DISC_received = FALSE;
     UA_received = FALSE;
 
     unsigned char byte;
@@ -595,8 +563,6 @@ int llclose(LinkLayer connectionParameters)
 
         while (alarmCount < connectionParameters.nRetransmissions && !DISC_received)
         {
-            int startAlarms = alarmCount;
-
             if (!alarmEnabled)
             {
                 printf("Sending DISC frame (attempt %d)\n", alarmCount + 1);
@@ -608,13 +574,15 @@ int llclose(LinkLayer connectionParameters)
             state = CSTART_STATE;
             while (state != CSTOP_STATE)
             {
-                // honor timeout: break to (re)send DISC
-                if (!alarmEnabled && alarmCount > startAlarms)
-                    break;
-
                 int res = readByteSerialPort(&byte);
                 if (res <= 0)
+                {
+                    if (!alarmEnabled)
+                    {
+                        break;
+                    }
                     continue;
+                }
 
                 switch (state)
                 {
@@ -625,25 +593,19 @@ int llclose(LinkLayer connectionParameters)
                 case CFLAG_RCV:
                     if (byte == DISC_A_rx)
                         state = CA_RCV;
-                    else if (byte == FLAG)
-                        state = CFLAG_RCV;
-                    else
+                    else if (byte != FLAG)
                         state = CSTART_STATE;
                     break;
                 case CA_RCV:
                     if (byte == DISC_C_rx)
                         state = CC_RCV;
-                    else if (byte == FLAG)
-                        state = CFLAG_RCV;
-                    else
+                    else if (byte != FLAG)
                         state = CSTART_STATE;
                     break;
                 case CC_RCV:
                     if (byte == (DISC_A_rx ^ DISC_C_rx))
                         state = CBCC_OK;
-                    else if (byte == FLAG)
-                        state = CFLAG_RCV;
-                    else
+                    else if (byte != FLAG)
                         state = CSTART_STATE;
                     break;
                 case CBCC_OK:
@@ -660,7 +622,6 @@ int llclose(LinkLayer connectionParameters)
 
             if (state != CSTOP_STATE)
             {
-                // timed out; try again
                 continue;
             }
 
@@ -671,6 +632,7 @@ int llclose(LinkLayer connectionParameters)
 
             int bytes_sent = writeBytesSerialPort(UA_tx, 5);
             printf("%d bytes written to serial port (UA frame)\n", bytes_sent);
+            sleep(1);
         }
 
         if (!DISC_received)
@@ -693,92 +655,70 @@ int llclose(LinkLayer connectionParameters)
     // Receiver
     else if (connectionParameters.role == LlRx)
     {
-        unsigned char DISC_reply[5] = {FLAG, 0x01, 0x0B, (0x01 ^ 0x0B), FLAG};
-        unsigned char DISC_A_tx = 0x03, DISC_C_tx = 0x0B;
+        unsigned char DISC_reply[5] = {FLAG, A_R_TR, C_DISC, A_R_TR ^ C_DISC, FLAG};
+        unsigned char DISC_A_tx = A_TR_R, DISC_C_tx = C_DISC;
 
-        state = CSTART_STATE;
-        while (state != CSTOP_STATE)
+        if (!DISC_received)
         {
-            int res = readByteSerialPort(&byte);
-            if (res <= 0)
+            state = CSTART_STATE;
+            while (state != CSTOP_STATE)
             {
-                continue;
-            }
+                int res = readByteSerialPort(&byte);
+                if (res <= 0)
+                {
+                    continue;
+                }
 
-            switch (state)
-            {
-            case CSTART_STATE:
-                if (byte == FLAG)
+                switch (state)
                 {
-                    state = CFLAG_RCV;
+                    case CSTART_STATE:
+                        if (byte == FLAG)
+                            state = CFLAG_RCV;
+                        break;
+                    case CFLAG_RCV:
+                        if (byte == DISC_A_tx)
+                            state = CA_RCV;
+                        else if (byte != FLAG)
+                            state = CSTART_STATE;
+                        break;
+                    case CA_RCV:
+                        if (byte == DISC_C_tx)
+                            state = CC_RCV;
+                        else if (byte != FLAG)
+                            state = CSTART_STATE;
+                        break;
+                    case CC_RCV:
+                        if (byte == (DISC_A_tx ^ DISC_C_tx))
+                            state = CBCC_OK;
+                        else if (byte != FLAG)
+                            state = CSTART_STATE;
+                        break;
+                    case CBCC_OK:
+                        if (byte == FLAG)
+                            state = CSTOP_STATE;
+                        else
+                            state = CSTART_STATE;
+                        break;
+                    default:
+                        state = CSTART_STATE;
+                        break;
                 }
-                break;
-            case CFLAG_RCV:
-                if (byte == DISC_A_tx)
-                {
-                    state = CA_RCV;
-                }
-                else if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            case CA_RCV:
-                if (byte == DISC_C_tx)
-                {
-                    state = CC_RCV;
-                }
-                else if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            case CC_RCV:
-                if (byte == (DISC_A_tx ^ DISC_C_tx))
-                {
-                    state = CBCC_OK;
-                }
-                else if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            case CBCC_OK:
-                if (byte == FLAG)
-                {
-                    state = CSTOP_STATE;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            default:
-                state = CSTART_STATE;
-                break;
             }
+            printf("DISC frame from transmitter received correctly.\n");
+            DISC_received = TRUE;
+
+            printf("Sending DISC reply.\n");
+            int bytes_sent = writeBytesSerialPort(DISC_reply, 5);
+            printf("%d bytes written to serial port (DISC reply)\n", bytes_sent);
+
+        }
+        else
+        {
+            printf("DISC already handled by llread(), skipping duplicate reception.\n");
         }
 
-        printf("DISC frame from transmitter received correctly.\n");
-
-        int bytes_sent = writeBytesSerialPort(DISC_reply, 5);
-        printf("%d bytes written to serial port (DISC reply)\n", bytes_sent);
-
         state = CSTART_STATE;
-        unsigned char UA_A = 0x01, UA_C = 0x07;
-
+        unsigned char UA_A = A_R_TR, UA_C = C_UA;
         while (state != CSTOP_STATE)
         {
             int res = readByteSerialPort(&byte);
@@ -789,80 +729,51 @@ int llclose(LinkLayer connectionParameters)
 
             switch (state)
             {
-            case CSTART_STATE:
-                if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                break;
-            case CFLAG_RCV:
-                if (byte == UA_A)
-                {
-                    state = CA_RCV;
-                }
-                else if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                else
-                {
+                case CSTART_STATE:
+                    if (byte == FLAG)
+                        state = CFLAG_RCV;
+                    break;
+                case CFLAG_RCV:
+                    if (byte == UA_A)
+                        state = CA_RCV;
+                    else if (byte != FLAG)
+                        state = CSTART_STATE;
+                    break;
+                case CA_RCV:
+                    if (byte == UA_C)
+                        state = CC_RCV;
+                    else if (byte != FLAG)
+                        state = CSTART_STATE;
+                    break;
+                case CC_RCV:
+                    if (byte == (UA_A ^ UA_C))
+                        state = CBCC_OK;
+                    else if (byte != FLAG)
+                        state = CSTART_STATE;
+                    break;
+                case CBCC_OK:
+                    if (byte == FLAG)
+                        state = CSTOP_STATE;
+                    else
+                        state = CSTART_STATE;
+                    break;
+                default:
                     state = CSTART_STATE;
-                }
-                break;
-            case CA_RCV:
-                if (byte == UA_C)
-                {
-                    state = CC_RCV;
-                }
-                else if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            case CC_RCV:
-                if (byte == (UA_A ^ UA_C))
-                {
-                    state = CBCC_OK;
-                }
-                else if (byte == FLAG)
-                {
-                    state = CFLAG_RCV;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            case CBCC_OK:
-                if (byte == FLAG)
-                {
-                    state = CSTOP_STATE;
-                }
-                else
-                {
-                    state = CSTART_STATE;
-                }
-                break;
-            default:
-                state = CSTART_STATE;
-                break;
+                    break;
             }
         }
 
         printf("UA frame received correctly.\n");
 
         sleep(1);
-
-        if (closeSerialPort() < 0)
+        int cl = closeSerialPort();
+        if (cl < 0)
         {
             perror("closeSerialPort");
             return -1;
         }
 
+        DISC_received = FALSE;
         printf("Serial port %s closed (llclose - Rx)\n", connectionParameters.serialPort);
         return 0;
     }
