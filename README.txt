@@ -1,3 +1,8 @@
+STUDENTS
+- Diogo Lima da Silva Costa
+- João Rodrigues Vila Cova
+
+
 INSTRUCTIONS FOR SERIAL PORT PROTOCOL
 =====================================
 
