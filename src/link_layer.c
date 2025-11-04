@@ -96,7 +96,7 @@ int llopen(LinkLayer connectionParameters)
                         state = CFLAG_RCV;
                     break;
                 case CFLAG_RCV:
-                    if (byte == A_TR_R)
+                    if (byte == A_R_TR)
                         state = CA_RCV;
                     else if (byte == FLAG)
                         state = CFLAG_RCV;
@@ -112,7 +112,7 @@ int llopen(LinkLayer connectionParameters)
                         state = CSTART_STATE;
                     break;
                 case CC_RCV:
-                    if (byte == (A_TR_R ^ C_UA))
+                    if (byte == (A_R_TR ^ C_UA))
                         state = CBCC_OK;
                     else if (byte == FLAG)
                         state = CFLAG_RCV;
@@ -213,7 +213,7 @@ int llopen(LinkLayer connectionParameters)
 
         printf("SET frame received correctly.\n");
 
-        unsigned char UA[5] = {FLAG, A_TR_R, C_UA, A_TR_R ^ C_UA, FLAG};
+        unsigned char UA[5] = {FLAG, A_R_TR, C_UA, A_R_TR ^ C_UA, FLAG};
         int bytes_sent = writeBytesSerialPort(UA, 5);
         printf("%d bytes written to serial port (UA frame)\n", bytes_sent);
 
