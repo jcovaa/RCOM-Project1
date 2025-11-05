@@ -1,0 +1,37 @@
+Starting link-layer protocol application
+  - Serial port: /dev/ttyS10
+  - Role: tx
+  - Baudrate: 9600
+  - Number of tries: 3
+  - Timeout: 4
+  - Filename: penguin.gif
+Serial port /dev/ttyS10 opened
+Sending SET frame (attempt 1)
+UA frame received correctly.
+Sending I frame with Ns=0 (attempt 1)
+RR received, frame acknowledged.
+Sending I frame with Ns=1 (attempt 1)
+Timeout waiting for RR/REJ, retransmitting frame.
+Sending I frame with Ns=1 (attempt 2)
+RR received, frame acknowledged.
+Sending I frame with Ns=0 (attempt 1)
+Timeout waiting for RR/REJ, retransmitting frame.
+Sending I frame with Ns=0 (attempt 2)
+Timeout waiting for RR/REJ, retransmitting frame.
+Sending I frame with Ns=0 (attempt 3)
+RR received, frame acknowledged.
+Sending I frame with Ns=1 (attempt 1)
+Timeout waiting for RR/REJ, retransmitting frame.
+Sending I frame with Ns=1 (attempt 2)
+Timeout waiting for RR/REJ, retransmitting frame.
+Sending I frame with Ns=1 (attempt 3)
+Timeout waiting for RR/REJ, retransmitting frame.
+Failed to receive RR after 3 attempts, llwrite failed.
+llwrite DATA failed.
+Sending DISC frame (attempt 1)
+Sending DISC frame (attempt 2)
+Sending DISC frame (attempt 3)
+DISC frame from receiver received correctly.
+5 bytes written to serial port (UA frame)
+Serial port /dev/ttyS10 closed (llclose - Tx)
+Application transfer failed.

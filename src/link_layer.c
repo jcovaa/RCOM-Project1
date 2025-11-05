@@ -300,11 +300,14 @@ int llwrite(const unsigned char *buf, int bufSize)
             alarm(0);
             alarmEnabled = FALSE;
             attempts++;
+            continue;
         }
         else if (response == 0)
         {
             printf("Timeout waiting for RR/REJ, retransmitting frame.\n");
             attempts++;
+            alarmEnabled = FALSE;
+            alarm(0);
         }
     }
 
@@ -437,123 +440,130 @@ int readResponse(int Ns)
 int llread(unsigned char *packet)
 {
     static int expectedNs = 0;
-    unsigned char frame[2 * (MAX_PAYLOAD_SIZE + 6)];
-    unsigned char byte;
-    int idx = 0;
 
-    do
+    while (TRUE)
     {
-        int res = readByteSerialPort(&byte);
-        if (res <= 0)
-            continue;
+        unsigned char frame[2 * (MAX_PAYLOAD_SIZE + 6)];
+        unsigned char byte;
+        int idx = 0;
 
-        if (idx == 0 && byte != FLAG)
+        do
         {
-            continue;
-        }
+            int res = readByteSerialPort(&byte);
+            if (res <= 0)
+                continue;
 
-        frame[idx++] = byte;
+            if (idx == 0 && byte != FLAG)
+            {
+                continue;
+            }
+
+            frame[idx++] = byte;
+
+            if (idx >= sizeof(frame))
+            {
+                printf("Frame too large.\n");
+                break;
+            }
+        } while (!(idx > 1 && byte == FLAG));
 
         if (idx >= sizeof(frame))
+            continue;
+
+        printf("Frame received (%d bytes)\n", idx);
+
+        int destuffedLen = byteDestuffing(frame + 1, idx - 2, frame + 1);
+        if (destuffedLen < 0)
         {
-            printf("Frame too large.\n");
-            return -1;
+            printf("Destuffing error: malformed frame.\n");
+            unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+            writeBytesSerialPort(rej, 5);
+            continue;
         }
-    } while (!(idx > 1 && byte == FLAG));
 
-    printf("Frame received (%d bytes)\n", idx);
+        if (destuffedLen == 3)
+        {
+            unsigned char A_field = frame[1], C_field = frame[2], BCC1 = frame[3];
 
-    int destuffedLen = byteDestuffing(frame + 1, idx - 2, frame + 1);
-    if (destuffedLen < 0)
-    {
-        printf("Destuffing error: malformed frame.\n");
-        unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
-        writeBytesSerialPort(rej, 5);
-        return -1;
-    }
+            if (A_field == A_TR_R && C_field == C_DISC && BCC1 == (A_field ^ C_field))
+            {
+                printf("DISC received while waiting for I-frames. Returning to upper layer.\n");
+                unsigned char DISC_reply[5] = {FLAG, A_R_TR, C_DISC, A_R_TR ^ C_DISC, FLAG};
+                writeBytesSerialPort(DISC_reply, 5);
+                DISC_received = TRUE;
+                return 0;
+            }
 
-    if (destuffedLen == 3)
-    {
+            printf("Short control frame (len=3) ignored.\n");
+            continue; // Changed from return 0 to continue
+        }
+
+        if (destuffedLen < 4)
+        {
+            printf("Control frame too short (len=%d), ignored.\n", destuffedLen);
+            continue; // Changed from return 0 to continue
+        }
+
         unsigned char A_field = frame[1], C_field = frame[2], BCC1 = frame[3];
 
-        if (A_field == A_TR_R && C_field == C_DISC && BCC1 == (A_field ^ C_field))
+        if (A_field != A_TR_R)
         {
-            printf("DISC received while waiting for I-frames. Returning to upper layer.\n");
-            unsigned char DISC_reply[5] = {FLAG, A_R_TR, C_DISC, A_R_TR ^ C_DISC, FLAG};
-            writeBytesSerialPort(DISC_reply, 5);
-            DISC_received = TRUE;
-            return 0;
+            printf("Invalid A field (0x%02X). Ignoring frame.\n", A_field);
+            continue; // Changed from return 0 to continue
         }
 
-        printf("Short control frame (len=3) ignored.\n");
-        return 0;
+        if ((A_field ^ C_field) != BCC1)
+        {
+            printf("BCC1 error (A^C=%02X, BCC1=%02X). Sending REJ.\n", A_field ^ C_field, BCC1);
+            unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+            writeBytesSerialPort(rej, 5);
+            continue;
+        }
+
+        if (C_field != C_I(0) && C_field != C_I(1))
+        {
+            printf("Invalid Control field (0x%02X).\n", C_field);
+            continue; // Changed from return 0 to continue
+        }
+
+        int receivedNs = (C_field >> 7) & 0x01;
+
+        int dataLen = destuffedLen - 4;
+        unsigned char calculatedBCC2 = 0x00;
+        for (int i = 0; i < dataLen; i++)
+        {
+            calculatedBCC2 ^= frame[4 + i];
+        }
+
+        unsigned char receivedBCC2 = frame[4 + dataLen];
+        if (receivedBCC2 != calculatedBCC2)
+        {
+            printf("BCC2 error: expected %02X, got %02X. Sending REJ(%d)\n", calculatedBCC2, receivedBCC2, expectedNs);
+            unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
+            writeBytesSerialPort(rej, 5);
+            continue;
+        }
+
+        if (receivedNs != expectedNs)
+        {
+            printf("Duplicate I-frame Ns=%d (expected %d) — resending RR(%d)\n",
+                   receivedNs, expectedNs, expectedNs);
+            unsigned char rr_dup[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
+            writeBytesSerialPort(rr_dup, 5);
+            continue; // Changed from return 0 to continue
+        }
+
+        memcpy(packet, frame + 4, dataLen);
+        int nextNr = (expectedNs + 1) % 2;
+
+        unsigned char rr[5] = {FLAG, A_R_TR, C_RR(nextNr), A_R_TR ^ C_RR(nextNr), FLAG};
+        writeBytesSerialPort(rr, 5);
+
+        printf("Valid I-frame with Ns=%d (%d bytes). Sent RR(%d)\n", expectedNs, dataLen, nextNr);
+
+        expectedNs = nextNr;
+        return dataLen;
     }
-
-    if (destuffedLen < 4)
-    {
-        printf("Control frame too short (len=%d), ignored.\n", destuffedLen);
-        return 0;
-    }
-
-    unsigned char A_field = frame[1], C_field = frame[2], BCC1 = frame[3];
-
-    if (A_field != A_TR_R)
-    {
-        printf("Invalid A field (0x%02X). Ignoring frame.\n", A_field);
-        return 0;
-    }
-
-    if ((A_field ^ C_field) != BCC1)
-    {
-        printf("BCC1 error (A^C=%02X, BCC1=%02X). Sending REJ.\n", A_field ^ C_field, BCC1);
-        unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
-        writeBytesSerialPort(rej, 5);
-        return -1;
-    }
-
-    if (C_field != C_I(0) && C_field != C_I(1))
-    {
-        printf("Invalid Control field (0x%02X).\n", C_field);
-        return 0;
-    }
-
-    int receivedNs = (C_field >> 7) & 0x01;
-
-    int dataLen = destuffedLen - 4;
-    unsigned char calculatedBCC2 = 0x00;
-    for (int i = 0; i < dataLen; i++)
-    {
-        calculatedBCC2 ^= frame[4 + i];
-    }
-
-    unsigned char receivedBCC2 = frame[4 + dataLen];
-    if (receivedBCC2 != calculatedBCC2)
-    {
-        printf("BCC2 error: expected %02X, got %02X. Sending REJ(%d)\n", calculatedBCC2, receivedBCC2, expectedNs);
-        unsigned char rej[5] = {FLAG, A_R_TR, C_REJ(expectedNs), A_R_TR ^ C_REJ(expectedNs), FLAG};
-        writeBytesSerialPort(rej, 5);
-        return -1;
-    }
-
-    if (receivedNs != expectedNs)
-    {
-        printf("Duplicate I-frame Ns=%d (expected %d) — resending RR(%d)\n",
-               receivedNs, expectedNs, expectedNs);
-        unsigned char rr_dup[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
-        writeBytesSerialPort(rr_dup, 5);
-        return 0;
-    }
-
-    memcpy(packet, frame + 4, dataLen);
-    int nextNr = (expectedNs + 1) % 2;
-
-    unsigned char rr[5] = {FLAG, A_R_TR, C_RR(nextNr), A_R_TR ^ C_RR(nextNr), FLAG};
-    writeBytesSerialPort(rr, 5);
-
-    printf("Valid I-frame with Ns=%d (%d bytes). Sent RR(%d)\n", expectedNs, dataLen, nextNr);
-
-    expectedNs = nextNr;
-    return dataLen;
 }
 
 ////////////////////////////////////////////////
