@@ -1,9 +1,12 @@
 // Main file of the serial port project.
 // DO NOT CHANGE THIS FILE
 
+#define _POSIX_C_SOURCE 199309L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "application_layer.h"
 
@@ -67,7 +70,20 @@ int main(int argc, char *argv[])
            TIMEOUT,
            filename);
 
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
     applicationLayer(serialPort, role, baudrate, N_TRIES, TIMEOUT, filename);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    // Calculate elapsed time
+    double elapsed = (end.tv_sec - start.tv_sec) +
+                     (end.tv_nsec - start.tv_nsec) / 1e9;
+
+    printf("\n=== EXECUTION TIME ===\n");
+    printf("Total time: %.3f seconds\n", elapsed);
+    printf("======================\n");
 
     return 0;
 }
