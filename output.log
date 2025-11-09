@@ -24,22 +24,16 @@ Sending I frame with Ns=0 (attempt 1)
 RR received, frame acknowledged.
 Sending I frame with Ns=1 (attempt 1)
 RR received, frame acknowledged.
-Sending I frame with Ns=0 (attempt 1)
-RR received, frame acknowledged.
-Sending I frame with Ns=1 (attempt 1)
-RR received, frame acknowledged.
-Sending I frame with Ns=0 (attempt 1)
-RR received, frame acknowledged.
-Sending I frame with Ns=1 (attempt 1)
-RR received, frame acknowledged.
-Sending I frame with Ns=0 (attempt 1)
-RR received, frame acknowledged.
 Sending DISC frame (attempt 1)
 DISC frame from receiver received correctly.
 5 bytes written to serial port (UA frame)
 Serial port /dev/ttyS10 closed (llclose - Tx)
 Application transfer completed successfully.
 
-=== EXECUTION TIME ===
-Total time: 13.709 seconds
-======================
+========== STATISTICS ==========
+Execution time: 13.636 seconds
+Total I-frames sent: 8
+Total bytes sent: 11142
+Total retransmissions: 0
+Total REJ received: 0
+================================

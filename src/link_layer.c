@@ -30,11 +30,25 @@ int alarmCount = 0;
 int UA_received = FALSE;
 int DISC_received = FALSE;
 
+unsigned long long total_bytes_sent = 0;
+unsigned long long total_bytes_received = 0;
+unsigned int total_i_frames_sent = 0;
+unsigned int total_i_frames_received = 0;
+unsigned int total_retransmissions = 0;
+unsigned int total_rejections = 0;
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters)
 {
+
+    total_bytes_sent = 0;
+    total_bytes_received = 0;
+    total_i_frames_sent = 0;
+    total_i_frames_received = 0;
+    total_retransmissions = 0;
+    total_rejections = 0;
 
     alarmEnabled = FALSE;
     alarmCount = 0;
@@ -280,6 +294,12 @@ int llwrite(const unsigned char *buf, int bufSize)
         {
             printf("Sending I frame with Ns=%d (attempt %d)\n", Ns, attempts + 1);
             writeBytesSerialPort(stuffedFrame, frameSize);
+            total_bytes_sent += frameSize;
+            total_i_frames_sent++;
+            if (attempts > 0)
+            {
+                total_retransmissions++;
+            }
             alarm(timeout);
             alarmEnabled = TRUE;
         }
@@ -297,6 +317,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         else if (response == -1)
         {
             printf("REJ received, retransmitting frame.\n");
+            total_rejections++;
             alarm(0);
             alarmEnabled = FALSE;
             attempts++;
@@ -550,7 +571,7 @@ int llread(unsigned char *packet)
                    receivedNs, expectedNs, expectedNs);
             unsigned char rr_dup[5] = {FLAG, A_R_TR, C_RR(expectedNs), A_R_TR ^ C_RR(expectedNs), FLAG};
             writeBytesSerialPort(rr_dup, 5);
-            continue; // Changed from return 0 to continue
+            continue;
         }
 
         memcpy(packet, frame + 4, dataLen);
@@ -560,6 +581,9 @@ int llread(unsigned char *packet)
         writeBytesSerialPort(rr, 5);
 
         printf("Valid I-frame with Ns=%d (%d bytes). Sent RR(%d)\n", expectedNs, dataLen, nextNr);
+
+        total_bytes_received += dataLen;
+        total_i_frames_received++;
 
         expectedNs = nextNr;
         return dataLen;

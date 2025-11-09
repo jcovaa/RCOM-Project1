@@ -13,6 +13,16 @@
 #define N_TRIES 3
 #define TIMEOUT 4
 
+// ...existing code...
+
+// Add these global statistics variables (add to header file)
+extern unsigned long long total_bytes_sent;
+extern unsigned long long total_bytes_received;
+extern unsigned int total_i_frames_sent;
+extern unsigned int total_i_frames_received;
+extern unsigned int total_retransmissions;
+extern unsigned int total_rejections;
+
 // Arguments:
 //   $1: /dev/ttySxx
 //   $2: baud rate
@@ -77,13 +87,25 @@ int main(int argc, char *argv[])
 
     clock_gettime(CLOCK_MONOTONIC, &end);
 
-    // Calculate elapsed time
     double elapsed = (end.tv_sec - start.tv_sec) +
                      (end.tv_nsec - start.tv_nsec) / 1e9;
 
-    printf("\n=== EXECUTION TIME ===\n");
-    printf("Total time: %.3f seconds\n", elapsed);
-    printf("======================\n");
+    printf("\n========== STATISTICS ==========\n");
+    printf("Execution time: %.3f seconds\n", elapsed);
+
+    if (strcmp(role, "tx") == 0)
+    {
+        printf("Total I-frames sent: %u\n", total_i_frames_sent);
+        printf("Total bytes sent: %llu\n", total_bytes_sent);
+        printf("Total retransmissions: %u\n", total_retransmissions);
+        printf("Total REJ received: %u\n", total_rejections);
+    }
+    else
+    {
+        printf("Total I-frames received: %u\n", total_i_frames_received);
+        printf("Total data bytes received: %llu\n", total_bytes_received);
+    }
+    printf("================================\n");
 
     return 0;
 }
